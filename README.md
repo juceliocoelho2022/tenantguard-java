@@ -7,10 +7,8 @@
 </p>
 
 Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL, Docker e testes de integração.
-Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL, Docker e testes de integração.
 
 O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**.
-
 ---
 
 ## 🎯 Objetivo
@@ -429,13 +427,13 @@ Ao final da requisição, o contexto é obrigatoriamente limpo.
 
 Exemplo conceitual:
 
-```java
+Java
 try {
     filterChain.doFilter(request, response);
 } finally {
     TenantContext.clear();
 }
-```
+
 
 Isso reduz o risco de vazamento de contexto entre requisições.
 
