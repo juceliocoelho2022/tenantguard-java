@@ -1,31 +1,39 @@
 # 🛡️ TenantGuard Java
 
 <p align="center">
+  <a href="https://github.com/juceliocoelho2022/tenantguard-java/actions/workflows/ci.yml">
+    <img src="https://github.com/juceliocoelho2022/tenantguard-java/actions/workflows/ci.yml/badge.svg?branch=main" alt="TenantGuard CI">
+  </a>
+  <img src="https://img.shields.io/badge/Java-21-blue" alt="Java 21">
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen" alt="Spring Boot 3.5">
+  <img src="https://img.shields.io/badge/PostgreSQL-RLS-blue" alt="PostgreSQL RLS">
+</p>
+
+<p align="center">
   <img src="docs/images/tenantGuard-architecture.png"
        alt="TenantGuard Java - Secure Multi-Tenant Architecture"
        width="100%">
 </p>
 
-Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL, Docker e testes de integração.
+Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL Row Level Security (RLS), Docker e testes de integração.
 
-O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**.
+O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**, utilizando defesa em profundidade na aplicação e no banco de dados.
+
 ---
 
 ## 🎯 Objetivo
 
 O TenantGuard Java demonstra uma arquitetura Multi-Tenant utilizando:
 
-**Shared Database + Shared Schema + `tenant_id`**
+**Shared Database + Shared Schema + `tenant_id` + PostgreSQL RLS**
 
-Nesse modelo, diferentes tenants compartilham o mesmo banco de dados e as mesmas tabelas, enquanto o isolamento dos registros é realizado através da coluna `tenant_id`.
+Diferentes tenants compartilham o mesmo banco de dados e as mesmas tabelas. O isolamento é aplicado em duas camadas: consultas tenant-aware na aplicação e políticas de **Row Level Security** no PostgreSQL.
 
-O tenant **não é recebido do cliente** através de query string, path parameter ou body.
-
-Ele é identificado a partir do claim `tenant_id` presente no JWT autenticado.
+O tenant **não é recebido do cliente** através de query string, path parameter ou body. Ele é identificado a partir do claim `tenant_id` presente no JWT autenticado.
 
 ---
 
-## 🏗️ Arquitetura
+## 🏗️ Arquitetura de segurança
 
 ```text
 Client
@@ -43,43 +51,39 @@ JwtTenantResolver
 TenantContext
   │
   ▼
-Service Layer
+SET LOCAL ROLE tenantguard_app
   │
   ▼
-Repository
+app.current_tenant
+  │
+  ▼
+Service / Repository
   │
   ▼
 Hibernate / JPA
   │
   ▼
-PostgreSQL
+PostgreSQL Row Level Security
 ```
 
-### Fluxo de autenticação e resolução do tenant
+### Defesa em profundidade
 
 ```text
-Login
-  │
-  ▼
-JWT gerado com claim tenant_id
-  │
-  ▼
-Authorization: Bearer <TOKEN>
-  │
-  ▼
-Spring Security
-  │
-  ▼
-JwtAuthenticationFilter
-  │
-  ▼
-JwtTenantResolver
-  │
-  ▼
+JWT tenant_id
+     │
+     ▼
 TenantContext
-  │
-  ▼
-Consulta filtrada pelo tenant autenticado
+     │
+     ├──► Repository: id + tenant_id
+     │
+     ▼
+PostgreSQL session: app.current_tenant
+     │
+     ▼
+RLS Policy
+     │
+     ▼
+Somente linhas do tenant autenticado
 ```
 
 ---
@@ -102,19 +106,21 @@ Consulta filtrada pelo tenant autenticado
 - Tenant Resolver
 - Tenant Context
 - Isolamento por `tenant_id`
+- PostgreSQL Row Level Security (RLS)
+- Role de aplicação sem privilégios de superusuário
+- Defesa em profundidade Application + Database
 
 ### Banco de dados
 
-- PostgreSQL
+- PostgreSQL 17
 - Flyway
+- Row Level Security
 
-### Infraestrutura
+### Infraestrutura e qualidade
 
 - Docker
 - Docker Compose
-
-### Testes
-
+- GitHub Actions CI
 - JUnit 5
 - MockMvc
 - Testcontainers
@@ -124,14 +130,14 @@ Consulta filtrada pelo tenant autenticado
 
 ## 🏢 Estratégia Multi-Tenant
 
-A estratégia utilizada nesta versão é:
-
 ```text
 Shared Database
       +
 Shared Schema
       +
 tenant_id
+      +
+PostgreSQL RLS
 ```
 
 Exemplo conceitual da tabela de pedidos:
@@ -144,7 +150,41 @@ Exemplo conceitual da tabela de pedidos:
 | 4 | Pedido C-001 | TENANT_C |
 | 5 | Pedido C-002 | TENANT_C |
 
-Mesmo compartilhando a mesma tabela, cada tenant deve visualizar somente seus próprios registros.
+Mesmo compartilhando a mesma tabela, cada tenant visualiza somente seus próprios registros.
+
+---
+
+## 🔐 PostgreSQL Row Level Security
+
+A aplicação utiliza **RLS como segunda barreira de isolamento**. A migration habilita e força Row Level Security na tabela `orders` e define uma política baseada no tenant da sessão do PostgreSQL.
+
+Conceitualmente:
+
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY orders_tenant_isolation
+ON orders
+USING (tenant_id = current_setting('app.current_tenant', true))
+WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+```
+
+Antes das operações de negócio, a aplicação associa o tenant autenticado à transação:
+
+```text
+JWT
+ ↓
+TenantContext
+ ↓
+SET LOCAL ROLE tenantguard_app
+ ↓
+set_config('app.current_tenant', tenantId, true)
+ ↓
+PostgreSQL RLS
+```
+
+O `WITH CHECK` também impede que a role da aplicação grave uma linha pertencente a outro tenant.
 
 ---
 
@@ -162,8 +202,6 @@ Mesmo compartilhando a mesma tabela, cada tenant deve visualizar somente seus pr
 
 ## 📦 Pedidos de demonstração
 
-O banco é inicializado com dados pertencentes aos três tenants.
-
 ```text
 TENANT_A
 ├── Pedido A-001
@@ -177,44 +215,26 @@ TENANT_C
 └── Pedido C-002
 ```
 
-Isso permite demonstrar e testar o isolamento entre tenants.
-
 ---
 
 ## 🐳 Executando com Docker
 
 ### Pré-requisitos
 
-Tenha instalado:
-
 - Docker Desktop
 - Docker Compose
 
-Clone o projeto:
-
 ```bash
 git clone https://github.com/juceliocoelho2022/tenantguard-java.git
-```
-
-Entre na pasta:
-
-```bash
 cd tenantguard-java
-```
-
-Execute:
-
-```bash
 docker compose up --build
 ```
 
-A aplicação ficará disponível em:
+Aplicação:
 
 ```text
 http://localhost:8081
 ```
-
-O PostgreSQL também será iniciado automaticamente pelo Docker Compose.
 
 ---
 
@@ -222,13 +242,9 @@ O PostgreSQL também será iniciado automaticamente pelo Docker Compose.
 
 ### Login do Tenant A
 
-Endpoint:
-
 ```http
 POST /api/auth/login
 ```
-
-Body:
 
 ```json
 {
@@ -253,19 +269,12 @@ O JWT contém o tenant associado ao usuário autenticado.
 
 ## 📋 Consultando pedidos
 
-Após realizar o login, envie o JWT através do header:
-
 ```http
+GET /api/orders
 Authorization: Bearer <TOKEN>
 ```
 
-Endpoint:
-
-```http
-GET /api/orders
-```
-
-Utilizando um token pertencente ao `TENANT_A`, o resultado esperado é:
+Com um token de `TENANT_A`, o resultado esperado contém somente:
 
 ```json
 [
@@ -280,194 +289,96 @@ Utilizando um token pertencente ao `TENANT_A`, o resultado esperado é:
 ]
 ```
 
-O pedido pertencente ao `TENANT_B` não aparece na consulta.
-
 ---
 
 ## 🛡️ Teste de isolamento entre tenants
 
-Este é o cenário principal demonstrado pelo projeto.
-
-O pedido:
-
-```text
-ID: 3
-Descrição: Pedido B-001
-Tenant: TENANT_B
-```
-
-pertence ao `TENANT_B`.
-
-### Tentativa utilizando TENANT_A
-
-```http
-GET /api/orders/3
-Authorization: Bearer <TOKEN_TENANT_A>
-```
-
-Resultado esperado:
-
-```text
-404 Not Found
-```
-
-O recurso não é retornado porque pertence a outro tenant.
-
-### Tentativa utilizando TENANT_B
-
-Com um JWT pertencente ao `TENANT_B`:
-
-```http
-GET /api/orders/3
-Authorization: Bearer <TOKEN_TENANT_B>
-```
-
-Resultado esperado:
-
-```text
-200 OK
-```
-
-Resposta:
-
-```json
-{
-  "id": 3,
-  "description": "Pedido B-001"
-}
-```
-
-Dessa forma, o mesmo recurso:
+O pedido de ID `3` pertence ao `TENANT_B`.
 
 ```text
 TENANT_A ──► /api/orders/3 ──► 404 Not Found
-
-TENANT_B ──► /api/orders/3 ──► 200 OK
-                                  │
-                                  └── Pedido B-001
+TENANT_B ──► /api/orders/3 ──► 200 OK ──► Pedido B-001
 ```
 
-Isso demonstra a proteção contra **acesso horizontal indevido entre tenants**.
+Além do filtro na aplicação, testes específicos comprovam que o PostgreSQL RLS:
+
+- filtra linhas por tenant mesmo quando uma consulta SQL não possui predicate explícito de `tenant_id`;
+- impede inserções cross-tenant através da política `WITH CHECK`.
+
+Isso protege contra **acesso horizontal indevido entre tenants** e reduz o impacto de uma consulta que esqueça acidentalmente o filtro de tenant.
 
 ---
 
-## 🧪 Testes automatizados
+## 🧪 Testes automatizados e CI
 
-O projeto possui testes de integração para validar o isolamento Multi-Tenant.
-
-Com o Docker disponível, execute:
+Os testes utilizam PostgreSQL real em container através do Testcontainers.
 
 ```bash
 mvn test
 ```
 
-Os testes utilizam:
+O projeto possui testes de isolamento na API e testes específicos da camada RLS.
 
-- JUnit 5
-- MockMvc
-- Testcontainers
-- PostgreSQL real executado em container
-
-### Resultado validado
+O workflow **TenantGuard CI** executa automaticamente o build e os testes a cada `push` e `pull request` na branch `main`.
 
 ```text
-Tests run: 3
-Failures: 0
-Errors: 0
-Skipped: 0
-
-BUILD SUCCESS
+Push / Pull Request
+        │
+        ▼
+GitHub Actions
+        │
+        ▼
+Java 21 + Maven
+        │
+        ▼
+Testcontainers + PostgreSQL
+        │
+        ▼
+Integration Tests
+        │
+        ▼
+✅ Build validado
 ```
-
-Os testes comprovam que:
-
-1. `TENANT_A` lista somente seus próprios pedidos.
-2. `TENANT_A` não consegue acessar o pedido pertencente ao `TENANT_B`.
-3. `TENANT_B` consegue acessar normalmente seu próprio pedido.
 
 ---
 
 ## 🔒 Decisões de segurança
 
-Algumas decisões importantes adotadas no projeto:
-
 ### Tenant não controlado pelo cliente
 
-O `tenantId` não é recebido através de:
+O `tenantId` não é recebido através de query string ou body. O tenant é obtido a partir do JWT validado.
 
-```text
-?tenantId=TENANT_A
-```
+### JWT com `tenant_id`
 
-nem através do body da requisição.
-
-O tenant é obtido a partir do JWT validado.
-
----
-
-### JWT com tenant_id
-
-Após a autenticação, o JWT contém o claim:
-
-```text
-tenant_id
-```
-
-Esse valor é utilizado para determinar o contexto do tenant durante a requisição.
-
----
+O claim `tenant_id` determina o contexto do tenant durante a requisição.
 
 ### TenantContext
 
-O tenant autenticado é armazenado temporariamente em um `TenantContext`.
+O contexto utiliza `ThreadLocal` e é obrigatoriamente limpo ao final da requisição:
 
-O contexto utiliza `ThreadLocal` para manter o tenant associado à execução atual.
-
-Ao final da requisição, o contexto é obrigatoriamente limpo.
-
-Exemplo conceitual:
-
-Java
+```java
 try {
     filterChain.doFilter(request, response);
 } finally {
     TenantContext.clear();
 }
-
-
-Isso reduz o risco de vazamento de contexto entre requisições.
-
----
-
-### Consultas protegidas
-
-Consultas individuais utilizam a combinação:
-
-```text
-id + tenant_id
 ```
 
-em vez de procurar apenas pelo identificador do recurso.
+### Consultas tenant-aware
 
-Conceitualmente:
+Consultas individuais utilizam:
 
 ```text
 findByIdAndTenantId(id, tenantId)
 ```
 
-Assim, conhecer o ID de um recurso pertencente a outro tenant não é suficiente para acessá-lo.
+### RLS no banco de dados
 
----
+Mesmo com consultas tenant-aware, o PostgreSQL aplica sua própria política de isolamento. Isso implementa **defesa em profundidade**.
 
 ### 404 para recursos de outros tenants
 
-Quando um tenant tenta consultar um recurso pertencente a outro tenant, a API retorna:
-
-```text
-404 Not Found
-```
-
-em vez de revelar que o recurso existe para outra organização.
+A API retorna `404 Not Found` em vez de revelar a existência de um recurso pertencente a outra organização.
 
 ---
 
@@ -476,135 +387,51 @@ em vez de revelar que o recurso existe para outra organização.
 ```text
 src
 ├── main
-│   ├── java
-│   │   └── com.jucelio.tenantguard
-│   │       ├── auth
-│   │       ├── config
-│   │       ├── order
-│   │       ├── security
-│   │       └── tenant
-│   │
-│   └── resources
-│       └── db
-│           └── migration
-│
-└── test
-    └── java
-        └── com.jucelio.tenantguard
-```
+│   ├── java/com/jucelio/tenantguard
+│   │   ├── auth
+│   │   ├── config
+│   │   ├── order
+│   │   ├── security
+│   │   └── tenant
+│   └── resources/db/migration
+└── test/java/com/jucelio/tenantguard
 
----
-
-## 🔄 Fluxo completo
-
-```text
-                ┌─────────────────┐
-                │     CLIENT      │
-                └────────┬────────┘
-                         │
-                         │ Login
-                         ▼
-                ┌─────────────────┐
-                │ Spring Security │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │       JWT       │
-                │    tenant_id    │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │JwtTenantResolver│
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │  TenantContext  │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │ Service Layer   │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │   Repository    │
-                │ id + tenant_id  │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │ Hibernate / JPA │
-                └────────┬────────┘
-                         │
-                         ▼
-                ┌─────────────────┐
-                │   PostgreSQL    │
-                └─────────────────┘
+.github
+└── workflows
+    └── ci.yml
 ```
 
 ---
 
 ## ⚠️ Escopo do projeto
 
-Este projeto é uma **Proof of Concept (PoC)** criada para estudo e demonstração de arquitetura Multi-Tenant.
+Este projeto é uma **Proof of Concept (PoC)** criada para estudo e demonstração de arquitetura Multi-Tenant segura.
 
-Ele não deve ser considerado uma implementação SaaS pronta para produção.
-
-Alguns mecanismos adicionais seriam necessários em um ambiente produtivo, incluindo gestão segura de secrets, identidade centralizada, observabilidade, auditoria, políticas no banco e controles adicionais de autorização.
+Ele não deve ser considerado uma implementação SaaS pronta para produção. Em produção seriam necessários mecanismos adicionais de gestão de secrets, identidade centralizada, observabilidade, auditoria, autorização e hardening de infraestrutura.
 
 ---
 
-## 🚀 Próximas evoluções
+## 🚀 Roadmap técnico
 
-Roadmap técnico:
-
-- [ ] PostgreSQL Row Level Security — RLS
+- [x] JWT com `tenant_id`
+- [x] TenantContext
+- [x] Consultas tenant-aware
+- [x] Testes de isolamento com Testcontainers
+- [x] GitHub Actions CI
+- [x] PostgreSQL Row Level Security — RLS
 - [ ] RBAC — Role-Based Access Control
 - [ ] Refresh Token
 - [ ] Keycloak
-- [ ] OAuth 2.0
-- [ ] OpenID Connect
+- [ ] OAuth 2.0 / OpenID Connect
 - [ ] Auditoria por tenant
 - [ ] Rate Limiting
 - [ ] Redis com isolamento por tenant
 - [ ] OpenAPI / Swagger
 - [ ] OpenTelemetry
-- [ ] Prometheus
-- [ ] Grafana
-- [ ] GitHub Actions
-- [ ] CI/CD
+- [ ] Prometheus / Grafana
+- [ ] CD / Deploy automatizado
 - [ ] Schema-per-Tenant
 - [ ] Database-per-Tenant
-
----
-
-## 💡 Próxima camada de segurança
-
-Uma das principais evoluções planejadas é implementar:
-
-**PostgreSQL Row Level Security (RLS)**
-
-A arquitetura passará a utilizar defesa em profundidade:
-
-```text
-JWT
- ↓
-TenantResolver
- ↓
-TenantContext
- ↓
-Repository
- ↓
-Hibernate
- ↓
-PostgreSQL RLS
-```
-
-Assim, além da aplicação controlar o acesso aos registros, o próprio PostgreSQL poderá aplicar políticas de isolamento entre tenants.
 
 ---
 
@@ -614,9 +441,7 @@ Assim, além da aplicação controlar o acesso aos registros, o próprio Postgre
 
 Java Backend Developer
 
-Tecnologias e áreas de interesse:
-
-`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `Testcontainers` • `Multi-Tenant Architecture`
+`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `Testcontainers` • `Multi-Tenant Architecture` • `PostgreSQL RLS`
 
 ---
 
