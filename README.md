@@ -1,5 +1,12 @@
 # 🛡️ TenantGuard Java
 
+<p align="center">
+  <img src="docs/images/tenantguard-architecture.png"
+       alt="TenantGuard Java - Secure Multi-Tenant Architecture"
+       width="100%">
+</p>
+
+Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL, Docker e testes de integração.
 Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL, Docker e testes de integração.
 
 O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**.
