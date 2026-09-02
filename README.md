@@ -1,7 +1,7 @@
 # 🛡️ TenantGuard Java
 
 <p align="center">
-  <img src="docs/images/tenantguard-architecture.png"
+  <img src="docs/images/tenantGuard-architecture.png"
        alt="TenantGuard Java - Secure Multi-Tenant Architecture"
        width="100%">
 </p>
