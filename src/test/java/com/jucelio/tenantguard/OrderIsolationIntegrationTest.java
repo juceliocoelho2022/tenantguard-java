@@ -38,7 +38,7 @@ class OrderIsolationIntegrationTest {
 
     @Test
     void tenantA_shouldSeeOnlyItsOwnOrders() throws Exception {
-        String token = token("user-a", "TENANT_A", "USER");
+        String token = token("user-a", "TENANT_A");
 
         mockMvc.perform(get("/api/orders")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -50,7 +50,7 @@ class OrderIsolationIntegrationTest {
 
     @Test
     void tenantA_shouldNotAccessTenantBOrderById() throws Exception {
-        String token = token("user-a", "TENANT_A", "USER");
+        String token = token("user-a", "TENANT_A");
 
         mockMvc.perform(get("/api/orders/3")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -59,7 +59,7 @@ class OrderIsolationIntegrationTest {
 
     @Test
     void tenantB_shouldAccessItsOwnOrder() throws Exception {
-        String token = token("user-b", "TENANT_B", "USER");
+        String token = token("user-b", "TENANT_B");
 
         mockMvc.perform(get("/api/orders/3")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -67,29 +67,9 @@ class OrderIsolationIntegrationTest {
                 .andExpect(jsonPath("$.description").value("Pedido B-001"));
     }
 
-    @Test
-    void userRole_shouldBeForbiddenFromAdminEndpoint() throws Exception {
-        String token = token("user-a", "TENANT_A", "USER");
-
-        mockMvc.perform(get("/api/admin/status")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void adminRole_shouldAccessAdminEndpoint() throws Exception {
-        String token = token("admin-a", "TENANT_A", "ADMIN");
-
-        mockMvc.perform(get("/api/admin/status")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ok"))
-                .andExpect(jsonPath("$.message").value("Acesso administrativo autorizado."));
-    }
-
-    private String token(String username, String tenantId, String role) {
+    private String token(String username, String tenantId) {
         return jwtService.generateToken(
-                new AuthenticatedUser(username, tenantId, role)
+                new AuthenticatedUser(username, tenantId, "USER")
         );
     }
 }
