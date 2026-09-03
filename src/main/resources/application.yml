@@ -21,6 +21,24 @@ spring:
 server:
   port: 8080
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+info:
+  app:
+    name: TenantGuard Java
+    description: Secure Multi-Tenant SaaS demo with JWT, RBAC and PostgreSQL RLS
+    version: 0.0.1-SNAPSHOT
+
 app:
   jwt:
     secret: ${JWT_SECRET:tenantguard-demo-secret-key-please-change-2026-very-long}
