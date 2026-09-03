@@ -7,6 +7,8 @@
   <img src="https://img.shields.io/badge/Java-21-blue" alt="Java 21">
   <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen" alt="Spring Boot 3.5">
   <img src="https://img.shields.io/badge/PostgreSQL-RLS-blue" alt="PostgreSQL RLS">
+  <img src="https://img.shields.io/badge/Security-RBAC-success" alt="RBAC">
+  <img src="https://img.shields.io/badge/OpenAPI-Swagger-85EA2D" alt="OpenAPI Swagger">
 </p>
 
 <p align="center">
@@ -15,7 +17,7 @@
        width="100%">
 </p>
 
-Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, PostgreSQL Row Level Security (RLS), Docker e testes de integração.
+Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, RBAC, PostgreSQL Row Level Security (RLS), OpenAPI/Swagger, Docker e testes de integração.
 
 O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**, utilizando defesa em profundidade na aplicação e no banco de dados.
 
@@ -44,6 +46,8 @@ Spring Security
   ▼
 JWT Authentication Filter
   │
+  ├──► ROLE_USER / ROLE_ADMIN (RBAC)
+  │
   ▼
 JwtTenantResolver
   │
@@ -69,7 +73,9 @@ PostgreSQL Row Level Security
 ### Defesa em profundidade
 
 ```text
-JWT tenant_id
+JWT tenant_id + role
+     │
+     ├──► Spring Security RBAC
      │
      ▼
 TenantContext
@@ -103,6 +109,7 @@ Somente linhas do tenant autenticado
 
 - JWT
 - Spring Security
+- RBAC — Role-Based Access Control
 - Tenant Resolver
 - Tenant Context
 - Isolamento por `tenant_id`
@@ -121,6 +128,7 @@ Somente linhas do tenant autenticado
 - Docker
 - Docker Compose
 - GitHub Actions CI
+- OpenAPI / Swagger
 - JUnit 5
 - MockMvc
 - Testcontainers
@@ -188,13 +196,38 @@ O `WITH CHECK` também impede que a role da aplicação grave uma linha pertence
 
 ---
 
-## 🔐 Tenants de demonstração
+## 👥 RBAC — Role-Based Access Control
 
-| Usuário | Senha | Tenant |
-|---|---|---|
-| `user-a` | `password` | `TENANT_A` |
-| `user-b` | `password` | `TENANT_B` |
-| `user-c` | `password` | `TENANT_C` |
+O TenantGuard separa **autenticação**, **autorização** e **isolamento de tenant**.
+
+O claim `role` do JWT é convertido em uma authority do Spring Security:
+
+```text
+USER  → ROLE_USER
+ADMIN → ROLE_ADMIN
+```
+
+Endpoints administrativos são protegidos por `hasRole("ADMIN")`.
+
+Validação realizada:
+
+```text
+user-a  → GET /api/admin/status → 403 Forbidden
+admin-a → GET /api/admin/status → 200 OK
+```
+
+Mesmo um `ADMIN` continua limitado ao seu próprio tenant. Os testes automatizados comprovam que `ADMIN` do `TENANT_A` não consegue acessar dados do `TENANT_B`.
+
+---
+
+## 🔐 Usuários de demonstração
+
+| Usuário | Senha | Tenant | Role |
+|---|---|---|---|
+| `user-a` | `password` | `TENANT_A` | `USER` |
+| `user-b` | `password` | `TENANT_B` | `USER` |
+| `user-c` | `password` | `TENANT_C` | `USER` |
+| `admin-a` | `password` | `TENANT_A` | `ADMIN` |
 
 > ⚠️ As credenciais são utilizadas exclusivamente para demonstração e desenvolvimento local.
 
@@ -263,7 +296,23 @@ Exemplo de resposta:
 }
 ```
 
-O JWT contém o tenant associado ao usuário autenticado.
+O JWT contém o tenant e o papel associados ao usuário autenticado.
+
+---
+
+## 📖 OpenAPI / Swagger
+
+A API possui documentação interativa através do Springdoc OpenAPI.
+
+Com a aplicação em execução localmente, o Swagger UI permite realizar login, autorizar requisições com Bearer JWT e testar endpoints protegidos.
+
+Exemplo usado durante o desenvolvimento:
+
+```text
+http://localhost:8082/swagger-ui/index.html
+```
+
+> A porta pode variar conforme a configuração utilizada para executar a aplicação.
 
 ---
 
@@ -317,7 +366,7 @@ Os testes utilizam PostgreSQL real em container através do Testcontainers.
 mvn test
 ```
 
-O projeto possui testes de isolamento na API e testes específicos da camada RLS.
+Atualmente a suíte valida isolamento da API, PostgreSQL RLS e RBAC, incluindo cenários `USER → 403`, `ADMIN → 200` e isolamento cross-tenant para administradores.
 
 O workflow **TenantGuard CI** executa automaticamente o build e os testes a cada `push` e `pull request` na branch `main`.
 
@@ -342,15 +391,105 @@ Integration Tests
 
 ---
 
+# 📊 Sprint 4 — Observabilidade Enterprise
+
+## Objetivo
+
+Transformar o **TenantGuard** em um SaaS monitorável em produção, adicionando **métricas, logs estruturados, tracing distribuído e auditoria por tenant**.
+
+A proposta da sprint é evoluir o projeto de uma PoC de segurança Multi-Tenant para um case de backend com práticas de observabilidade utilizadas em ambientes de produção.
+
+## 🏗️ Arquitetura final planejada
+
+```text
+                         ┌──────────────────┐
+                         │    Prometheus    │
+                         │     métricas     │
+                         └────────▲─────────┘
+                                  │
+┌──────────────┐        ┌─────────┴──────────┐        ┌──────────────────┐
+│   Usuário    │───────►│    Spring Boot     │───────►│     Grafana      │
+│ JWT/tenant_id│        │ Security + RBAC    │        │    Dashboards    │
+└──────────────┘        │ Micrometer + OTel  │        │     Alertas      │
+                        └─────┬────┬────┬────┘        └──────────────────┘
+                              │    │    │
+                    ┌─────────┘    │    └──────────┐
+                    ▼              ▼               ▼
+             ┌────────────┐  ┌────────────┐  ┌────────────┐
+             │ PostgreSQL │  │    Loki    │  │   Tempo    │
+             │RLS + Audit │  │ logs JSON  │  │  tracing   │
+             └────────────┘  └────────────┘  └────────────┘
+```
+
+## 🔭 O que vamos implementar
+
+### Micrometer
+
+Métricas de requisições HTTP, JVM, recursos da aplicação e integração com o ecossistema de observabilidade do Spring Boot.
+
+### Prometheus
+
+Coleta das métricas expostas pela aplicação para acompanhamento de disponibilidade, throughput e latência.
+
+### Grafana
+
+Dashboard profissional para visualizar métricas operacionais, latência, volume de requisições e comportamento da aplicação.
+
+### Logs estruturados JSON
+
+Logs preparados para correlação contendo informações como:
+
+```text
+tenant_id
+user
+requestId
+traceId
+```
+
+### OpenTelemetry
+
+Tracing distribuído para acompanhar o ciclo de uma requisição e facilitar a investigação de latência e falhas.
+
+### Auditoria por tenant
+
+Registro de quem executou uma operação, quando ela ocorreu e em qual tenant, mantendo auditoria e isolamento como responsabilidades complementares.
+
+## 🧭 Estrutura da Sprint
+
+| Etapa | Resultado |
+|---:|---|
+| 1 | Micrometer + Actuator |
+| 2 | Prometheus |
+| 3 | Grafana Dashboard |
+| 4 | Logs estruturados JSON |
+| 5 | OpenTelemetry |
+| 6 | Auditoria por tenant |
+
+## 📈 Dashboard planejado
+
+O dashboard deverá permitir acompanhar, entre outros indicadores:
+
+- throughput e volume de requisições;
+- latência e tempo de resposta;
+- status e saúde da aplicação;
+- métricas da JVM;
+- erros HTTP;
+- logs correlacionados por `tenant_id`, `requestId` e `traceId`;
+- traces distribuídos através do OpenTelemetry/Tempo.
+
+> As imagens de referência do dashboard serão substituídas por screenshots reais do TenantGuard assim que Prometheus, Grafana, Loki e Tempo estiverem configurados. Isso evita apresentar dashboards de terceiros como se fossem resultados do projeto.
+
+---
+
 ## 🔒 Decisões de segurança
 
 ### Tenant não controlado pelo cliente
 
 O `tenantId` não é recebido através de query string ou body. O tenant é obtido a partir do JWT validado.
 
-### JWT com `tenant_id`
+### JWT com `tenant_id` e `role`
 
-O claim `tenant_id` determina o contexto do tenant durante a requisição.
+Os claims `tenant_id` e `role` determinam o contexto de tenant e as authorities utilizadas pelo Spring Security.
 
 ### TenantContext
 
@@ -376,6 +515,10 @@ findByIdAndTenantId(id, tenantId)
 
 Mesmo com consultas tenant-aware, o PostgreSQL aplica sua própria política de isolamento. Isso implementa **defesa em profundidade**.
 
+### RBAC não ignora o tenant
+
+Possuir `ROLE_ADMIN` não concede acesso global aos dados. O tenant continua sendo aplicado pela aplicação e pelo PostgreSQL RLS.
+
 ### 404 para recursos de outros tenants
 
 A API retorna `404 Not Found` em vez de revelar a existência de um recurso pertencente a outra organização.
@@ -388,6 +531,7 @@ A API retorna `404 Not Found` em vez de revelar a existência de um recurso pert
 src
 ├── main
 │   ├── java/com/jucelio/tenantguard
+│   │   ├── admin
 │   │   ├── auth
 │   │   ├── config
 │   │   ├── order
@@ -413,23 +557,37 @@ Ele não deve ser considerado uma implementação SaaS pronta para produção. E
 
 ## 🚀 Roadmap técnico
 
-- [x] JWT com `tenant_id`
+### Concluído
+
+- [x] JWT com `tenant_id` e `role`
 - [x] TenantContext
 - [x] Consultas tenant-aware
 - [x] Testes de isolamento com Testcontainers
 - [x] GitHub Actions CI
 - [x] PostgreSQL Row Level Security — RLS
-- [ ] RBAC — Role-Based Access Control
+- [x] RBAC — Role-Based Access Control
+- [x] OpenAPI / Swagger
+
+### Sprint 4 — Observabilidade Enterprise
+
+- [ ] Micrometer + Actuator
+- [ ] Prometheus
+- [ ] Grafana Dashboard
+- [ ] Logs estruturados JSON
+- [ ] OpenTelemetry / Tempo
+- [ ] Auditoria por tenant
+
+### Próximas evoluções
+
 - [ ] Refresh Token
 - [ ] Keycloak
 - [ ] OAuth 2.0 / OpenID Connect
-- [ ] Auditoria por tenant
 - [ ] Rate Limiting
 - [ ] Redis com isolamento por tenant
-- [ ] OpenAPI / Swagger
-- [ ] OpenTelemetry
-- [ ] Prometheus / Grafana
+- [ ] Kafka / arquitetura orientada a eventos
 - [ ] CD / Deploy automatizado
+- [ ] Kubernetes + Helm
+- [ ] Deploy AWS
 - [ ] Schema-per-Tenant
 - [ ] Database-per-Tenant
 
@@ -441,7 +599,7 @@ Ele não deve ser considerado uma implementação SaaS pronta para produção. E
 
 Java Backend Developer
 
-`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `Testcontainers` • `Multi-Tenant Architecture` • `PostgreSQL RLS`
+`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `RBAC` • `OpenAPI` • `Testcontainers` • `Multi-Tenant Architecture` • `PostgreSQL RLS`
 
 ---
 
