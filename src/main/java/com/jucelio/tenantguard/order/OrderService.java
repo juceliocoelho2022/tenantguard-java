@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.order;
 
+import com.jucelio.tenantguard.audit.AuditService;
 import com.jucelio.tenantguard.tenant.RlsTenantGuard;
 import com.jucelio.tenantguard.tenant.TenantContext;
 import org.springframework.stereotype.Service;
@@ -12,10 +13,15 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final RlsTenantGuard rlsTenantGuard;
+    private final AuditService auditService;
 
-    public OrderService(OrderRepository repository, RlsTenantGuard rlsTenantGuard) {
+    public OrderService(
+            OrderRepository repository,
+            RlsTenantGuard rlsTenantGuard,
+            AuditService auditService) {
         this.repository = repository;
         this.rlsTenantGuard = rlsTenantGuard;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
@@ -23,10 +29,13 @@ public class OrderService {
         String tenantId = TenantContext.getTenant();
         rlsTenantGuard.applyCurrentTenant();
 
-        return repository.findByTenantIdOrderById(tenantId)
+        List<OrderResponse> orders = repository.findByTenantIdOrderById(tenantId)
                 .stream()
                 .map(OrderResponse::from)
                 .toList();
+
+        auditService.record("ORDER_LIST", "ORDER", null, "SUCCESS");
+        return orders;
     }
 
     @Transactional(readOnly = true)
@@ -34,9 +43,12 @@ public class OrderService {
         String tenantId = TenantContext.getTenant();
         rlsTenantGuard.applyCurrentTenant();
 
-        return repository.findByIdAndTenantId(id, tenantId)
+        OrderResponse order = repository.findByIdAndTenantId(id, tenantId)
                 .map(OrderResponse::from)
                 .orElseThrow(OrderNotFoundException::new);
+
+        auditService.record("ORDER_READ", "ORDER", id.toString(), "SUCCESS");
+        return order;
     }
 
     @Transactional
@@ -45,6 +57,8 @@ public class OrderService {
         rlsTenantGuard.applyCurrentTenant();
 
         Order order = new Order(request.description(), tenantId);
-        return OrderResponse.from(repository.save(order));
+        OrderResponse created = OrderResponse.from(repository.save(order));
+        auditService.record("ORDER_CREATE", "ORDER", created.id().toString(), "SUCCESS");
+        return created;
     }
 }
