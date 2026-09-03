@@ -16,18 +16,35 @@ services:
     volumes:
       - tenantguard_pgdata:/var/lib/postgresql/data
 
+  tempo:
+    image: grafana/tempo:2.10.5
+    container_name: tenantguard-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tenantguard_tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+
   app:
     build: .
     container_name: tenantguard-app
     depends_on:
       postgres:
         condition: service_healthy
+      tempo:
+        condition: service_started
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tenantguard
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-tenantguard}
       JWT_SECRET: ${JWT_SECRET:-tenantguard-demo-secret-key-please-change-2026-very-long}
       LOG_DIR: /app/logs
+      OTEL_SERVICE_NAME: tenantguard-java
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
     volumes:
       - tenantguard_logs:/app/logs
     ports:
@@ -75,6 +92,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-tenantguard}
@@ -92,4 +110,5 @@ volumes:
   tenantguard_prometheus_data:
   tenantguard_grafana_data:
   tenantguard_loki_data:
+  tenantguard_tempo_data:
   tenantguard_logs:
