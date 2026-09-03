@@ -56,6 +56,15 @@ class RbacIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Acesso administrativo autorizado."));
     }
 
+    @Test
+    void adminRole_shouldStillRespectTenantIsolation() throws Exception {
+        String token = token("admin-a", "TENANT_A", "ADMIN");
+
+        mockMvc.perform(get("/api/orders/3")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
     private String token(String username, String tenantId, String role) {
         return jwtService.generateToken(
                 new AuthenticatedUser(username, tenantId, role)
