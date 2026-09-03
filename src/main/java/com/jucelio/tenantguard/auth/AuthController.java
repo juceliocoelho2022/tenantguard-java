@@ -16,9 +16,10 @@ public class AuthController {
     private final JwtService jwtService;
 
     private static final Map<String, DemoUser> USERS = Map.of(
-            "user-a", new DemoUser("password", "TENANT_A"),
-            "user-b", new DemoUser("password", "TENANT_B"),
-            "user-c", new DemoUser("password", "TENANT_C")
+            "user-a", new DemoUser("password", "TENANT_A", "USER"),
+            "user-b", new DemoUser("password", "TENANT_B", "USER"),
+            "user-c", new DemoUser("password", "TENANT_C", "USER"),
+            "admin-a", new DemoUser("password", "TENANT_A", "ADMIN")
     );
 
     public AuthController(JwtService jwtService) {
@@ -36,7 +37,7 @@ public class AuthController {
         var user = new AuthenticatedUser(
                 request.username(),
                 demoUser.tenantId(),
-                "USER"
+                demoUser.role()
         );
 
         return new LoginResponse(
@@ -46,5 +47,5 @@ public class AuthController {
         );
     }
 
-    private record DemoUser(String password, String tenantId) {}
+    private record DemoUser(String password, String tenantId, String role) {}
 }
