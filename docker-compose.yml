@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: tenantguard
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 89327934
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tenantguard}
     ports:
       - "5432:5432"
     healthcheck:
@@ -25,10 +25,24 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tenantguard
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
-      JWT_SECRET: tenantguard-demo-secret-key-please-change-2026-very-long
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-tenantguard}
+      JWT_SECRET: ${JWT_SECRET:-tenantguard-demo-secret-key-please-change-2026-very-long}
     ports:
       - "8081:8080"
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: tenantguard-prometheus
+    depends_on:
+      - app
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - tenantguard_prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
 volumes:
   tenantguard_pgdata:
+  tenantguard_prometheus_data:
