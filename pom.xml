@@ -20,6 +20,7 @@
         <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <testcontainers.version>1.20.4</testcontainers.version>
+        <logstash-logback-encoder.version>8.1</logstash-logback-encoder.version>
     </properties>
 
     <dependencies>
@@ -51,6 +52,12 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>${logstash-logback-encoder.version}</version>
         </dependency>
 
         <dependency>
