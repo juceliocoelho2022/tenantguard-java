@@ -45,4 +45,5 @@ info:
 app:
   jwt:
     secret: ${JWT_SECRET:tenantguard-demo-secret-key-please-change-2026-very-long}
-    expiration-seconds: 3600
+    expiration-seconds: ${JWT_ACCESS_EXPIRATION_SECONDS:3600}
+    refresh-expiration-seconds: ${JWT_REFRESH_EXPIRATION_SECONDS:604800}
