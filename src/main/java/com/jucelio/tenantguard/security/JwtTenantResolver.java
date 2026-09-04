@@ -13,20 +13,24 @@ public class JwtTenantResolver {
     }
 
     public AuthenticatedUser resolve(String token) {
-        Claims claims = jwtService.parse(token);
+        Claims claims = jwtService.parseAccessToken(token);
 
         String username = claims.getSubject();
         String tenantId = claims.get("tenant_id", String.class);
         String role = claims.get("role", String.class);
 
+        if (username == null || username.isBlank()) {
+            throw new IllegalArgumentException("JWT sem subject.");
+        }
+
         if (tenantId == null || tenantId.isBlank()) {
             throw new IllegalArgumentException("JWT sem claim tenant_id.");
         }
 
-        return new AuthenticatedUser(
-                username,
-                tenantId,
-                role == null ? "USER" : role
-        );
+        if (role == null || role.isBlank()) {
+            throw new IllegalArgumentException("JWT sem claim role.");
+        }
+
+        return new AuthenticatedUser(username, tenantId, role);
     }
 }
