@@ -37,12 +37,20 @@ class RbacIntegrationTest {
     JwtService jwtService;
 
     @Test
+    void missingAuthentication_shouldReturnUnauthorizedJson() throws Exception {
+        mockMvc.perform(get("/api/admin/status"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("unauthorized"));
+    }
+
+    @Test
     void userRole_shouldBeForbiddenFromAdminEndpoint() throws Exception {
         String token = token("user-a", "TENANT_A", "USER");
 
         mockMvc.perform(get("/api/admin/status")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("forbidden"));
     }
 
     @Test
