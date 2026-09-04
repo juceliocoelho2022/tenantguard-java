@@ -1,7 +1,6 @@
 package com.jucelio.tenantguard.auth;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
-import com.jucelio.tenantguard.security.JwtService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -13,7 +12,7 @@ import java.util.Map;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    private final JwtService jwtService;
+    private final AuthTokenService authTokenService;
 
     private static final Map<String, DemoUser> USERS = Map.of(
             "user-a", new DemoUser("password", "TENANT_A", "USER"),
@@ -22,8 +21,8 @@ public class AuthController {
             "admin-a", new DemoUser("password", "TENANT_A", "ADMIN")
     );
 
-    public AuthController(JwtService jwtService) {
-        this.jwtService = jwtService;
+    public AuthController(AuthTokenService authTokenService) {
+        this.authTokenService = authTokenService;
     }
 
     @PostMapping("/login")
@@ -40,27 +39,26 @@ public class AuthController {
                 demoUser.role()
         );
 
-        return issueTokens(user);
+        return authTokenService.issueTokens(user);
     }
 
     @PostMapping("/refresh")
     public LoginResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
         try {
-            AuthenticatedUser user = jwtService.parseRefreshToken(request.refreshToken());
-            return issueTokens(user);
+            return authTokenService.rotate(request.refreshToken());
         } catch (Exception ex) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido ou expirado.");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido, expirado ou revogado.");
         }
     }
 
-    private LoginResponse issueTokens(AuthenticatedUser user) {
-        return new LoginResponse(
-                jwtService.generateAccessToken(user),
-                jwtService.generateRefreshToken(user),
-                "Bearer",
-                jwtService.accessExpirationSeconds(),
-                user.tenantId()
-        );
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@Valid @RequestBody RefreshTokenRequest request) {
+        try {
+            authTokenService.revoke(request.refreshToken());
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido, expirado ou revogado.");
+        }
     }
 
     private record DemoUser(String password, String tenantId, String role) {}
