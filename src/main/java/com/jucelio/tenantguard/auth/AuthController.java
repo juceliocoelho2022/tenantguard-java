@@ -40,10 +40,26 @@ public class AuthController {
                 demoUser.role()
         );
 
+        return issueTokens(user);
+    }
+
+    @PostMapping("/refresh")
+    public LoginResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        try {
+            AuthenticatedUser user = jwtService.parseRefreshToken(request.refreshToken());
+            return issueTokens(user);
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido ou expirado.");
+        }
+    }
+
+    private LoginResponse issueTokens(AuthenticatedUser user) {
         return new LoginResponse(
-                jwtService.generateToken(user),
+                jwtService.generateAccessToken(user),
+                jwtService.generateRefreshToken(user),
                 "Bearer",
-                demoUser.tenantId()
+                jwtService.accessExpirationSeconds(),
+                user.tenantId()
         );
     }
 
