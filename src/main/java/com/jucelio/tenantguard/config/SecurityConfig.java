@@ -4,6 +4,7 @@ import com.jucelio.tenantguard.security.AuthRateLimitFilter;
 import com.jucelio.tenantguard.security.JwtAuthenticationFilter;
 import com.jucelio.tenantguard.security.RestAccessDeniedHandler;
 import com.jucelio.tenantguard.security.RestAuthenticationEntryPoint;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -31,6 +32,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/refresh",
