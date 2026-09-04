@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,9 +19,11 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
     private static final String REFRESH_PATH = "/api/auth/refresh";
 
     private final AuthRateLimitService rateLimitService;
+    private final SecurityEventService securityEventService;
 
-    public AuthRateLimitFilter(AuthRateLimitService rateLimitService) {
+    public AuthRateLimitFilter(AuthRateLimitService rateLimitService, SecurityEventService securityEventService) {
         this.rateLimitService = rateLimitService;
+        this.securityEventService = securityEventService;
     }
 
     @Override
@@ -43,6 +46,14 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+
+        securityEventService.record(
+                request,
+                "RATE_LIMIT_EXCEEDED",
+                429,
+                null,
+                "Request blocked by authentication endpoint rate limit"
+        );
 
         response.setStatus(429);
         response.setHeader("Retry-After", Long.toString(decision.retryAfterSeconds()));
