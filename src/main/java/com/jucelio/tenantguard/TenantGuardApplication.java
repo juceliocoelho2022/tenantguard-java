@@ -2,8 +2,9 @@ package com.jucelio.tenantguard;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 public class TenantGuardApplication {
     public static void main(String[] args) {
         SpringApplication.run(TenantGuardApplication.class, args);
