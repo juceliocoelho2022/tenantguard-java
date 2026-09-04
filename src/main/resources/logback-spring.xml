@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property name="LOG_DIR" value="${LOG_DIR:-/app/logs}"/>
+    <!--
+      Local/CI environments write to a relative directory by default.
+      Docker overrides LOG_DIR with /app/logs, which is backed by the
+      tenantguard_logs volume and consumed by Promtail.
+    -->
+    <property name="LOG_DIR" value="${LOG_DIR:-./logs}"/>
 
     <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
