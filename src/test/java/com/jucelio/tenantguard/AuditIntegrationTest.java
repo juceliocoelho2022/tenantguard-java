@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
-class RbacIntegrationTest {
+class AuditIntegrationTest {
 
     @Container
     @ServiceConnection
@@ -37,45 +37,37 @@ class RbacIntegrationTest {
     JwtService jwtService;
 
     @Test
-    void missingAuthentication_shouldReturnUnauthorizedJson() throws Exception {
-        mockMvc.perform(get("/api/admin/status"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("unauthorized"));
-    }
+    void adminShouldSeeOnlyAuditEventsFromItsTenant() throws Exception {
+        String userAToken = token("user-a", "TENANT_A", "USER");
+        String userBToken = token("user-b", "TENANT_B", "USER");
+        String adminAToken = token("admin-a", "TENANT_A", "ADMIN");
 
-    @Test
-    void userRole_shouldBeForbiddenFromAdminEndpoint() throws Exception {
-        String token = token("user-a", "TENANT_A", "USER");
-
-        mockMvc.perform(get("/api/admin/status")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error").value("forbidden"));
-    }
-
-    @Test
-    void adminRole_shouldAccessAdminEndpoint() throws Exception {
-        String token = token("admin-a", "TENANT_A", "ADMIN");
-
-        mockMvc.perform(get("/api/admin/status")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ok"))
-                .andExpect(jsonPath("$.message").value("Acesso administrativo autorizado."));
-    }
-
-    @Test
-    void adminRole_shouldStillRespectTenantIsolation() throws Exception {
-        String token = token("admin-a", "TENANT_A", "ADMIN");
+        mockMvc.perform(get("/api/orders")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userAToken))
+                .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/orders/3")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isNotFound());
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userBToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/audit-events")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].tenantId").value("TENANT_A"))
+                .andExpect(jsonPath("$[0].username").value("user-a"))
+                .andExpect(jsonPath("$[0].action").value("ORDER_LIST"));
+    }
+
+    @Test
+    void regularUserShouldNotAccessAuditEndpoint() throws Exception {
+        String userAToken = token("user-a", "TENANT_A", "USER");
+
+        mockMvc.perform(get("/api/admin/audit-events")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userAToken))
+                .andExpect(status().isForbidden());
     }
 
     private String token(String username, String tenantId, String role) {
-        return jwtService.generateToken(
-                new AuthenticatedUser(username, tenantId, role)
-        );
+        return jwtService.generateToken(new AuthenticatedUser(username, tenantId, role));
     }
 }

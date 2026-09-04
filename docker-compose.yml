@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: tenantguard
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 89327934
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tenantguard}
     ports:
       - "5432:5432"
     healthcheck:
@@ -16,19 +16,99 @@ services:
     volumes:
       - tenantguard_pgdata:/var/lib/postgresql/data
 
+  tempo:
+    image: grafana/tempo:2.10.5
+    container_name: tenantguard-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tenantguard_tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+
   app:
     build: .
     container_name: tenantguard-app
     depends_on:
       postgres:
         condition: service_healthy
+      tempo:
+        condition: service_started
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tenantguard
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: postgres
-      JWT_SECRET: tenantguard-demo-secret-key-please-change-2026-very-long
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-tenantguard}
+      JWT_SECRET: ${JWT_SECRET:-tenantguard-demo-secret-key-please-change-2026-very-long}
+      LOG_DIR: /app/logs
+      OTEL_SERVICE_NAME: tenantguard-java
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+    volumes:
+      - tenantguard_logs:/app/logs
     ports:
       - "8081:8080"
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: tenantguard-prometheus
+    depends_on:
+      - app
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - tenantguard_prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: tenantguard-loki
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - tenantguard_loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.5.0
+    container_name: tenantguard-promtail
+    depends_on:
+      - app
+      - loki
+    command:
+      - -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - tenantguard_logs:/var/log/tenantguard:ro
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    container_name: tenantguard-grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-tenantguard}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - tenantguard_grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+
 volumes:
   tenantguard_pgdata:
+  tenantguard_prometheus_data:
+  tenantguard_grafana_data:
+  tenantguard_loki_data:
+  tenantguard_tempo_data:
+  tenantguard_logs:

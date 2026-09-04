@@ -9,6 +9,8 @@
   <img src="https://img.shields.io/badge/PostgreSQL-RLS-blue" alt="PostgreSQL RLS">
   <img src="https://img.shields.io/badge/Security-RBAC-success" alt="RBAC">
   <img src="https://img.shields.io/badge/OpenAPI-Swagger-85EA2D" alt="OpenAPI Swagger">
+  <img src="https://img.shields.io/badge/Observability-Prometheus%20%7C%20Grafana-orange" alt="Observability">
+  <img src="https://img.shields.io/badge/Tracing-OpenTelemetry-purple" alt="OpenTelemetry">
 </p>
 
 <p align="center">
@@ -17,57 +19,57 @@
        width="100%">
 </p>
 
-Projeto demonstrativo de **Multi-Tenancy seguro** desenvolvido com **Java 21 e Spring Boot**, com foco em isolamento de dados entre tenants, autenticação JWT, RBAC, PostgreSQL Row Level Security (RLS), OpenAPI/Swagger, Docker e testes de integração.
+**TenantGuard Java** é uma Proof of Concept de backend SaaS Multi-Tenant construída com **Java 21 e Spring Boot**, combinando isolamento de dados, autenticação JWT, RBAC, PostgreSQL Row Level Security, auditoria persistente por tenant e uma stack completa de observabilidade.
 
-O objetivo é demonstrar, por meio de código e testes automatizados, como construir uma API SaaS em que cada tenant autenticado consegue acessar **somente os próprios dados**, utilizando defesa em profundidade na aplicação e no banco de dados.
+O projeto demonstra defesa em profundidade: o tenant é derivado do JWT autenticado, aplicado na camada de serviço/repositório e reforçado pelo próprio PostgreSQL através de RLS.
 
 ---
 
 ## 🎯 Objetivo
 
-O TenantGuard Java demonstra uma arquitetura Multi-Tenant utilizando:
+A arquitetura utiliza:
 
 **Shared Database + Shared Schema + `tenant_id` + PostgreSQL RLS**
 
-Diferentes tenants compartilham o mesmo banco de dados e as mesmas tabelas. O isolamento é aplicado em duas camadas: consultas tenant-aware na aplicação e políticas de **Row Level Security** no PostgreSQL.
+O `tenant_id` **não é aceito do cliente** por query string, path parameter ou body. Ele é obtido do JWT validado e propagado pelo `TenantContext`.
 
-O tenant **não é recebido do cliente** através de query string, path parameter ou body. Ele é identificado a partir do claim `tenant_id` presente no JWT autenticado.
+Isso reduz o risco de acesso horizontal indevido e mantém o isolamento mesmo quando diferentes clientes compartilham o mesmo banco e as mesmas tabelas.
 
 ---
 
-## 🏗️ Arquitetura de segurança
+## 🏗️ Arquitetura
 
 ```text
-Client
+Cliente
   │
   ▼
-Spring Security
+Spring Security + JWT
   │
-  ▼
-JWT Authentication Filter
-  │
-  ├──► ROLE_USER / ROLE_ADMIN (RBAC)
-  │
-  ▼
-JwtTenantResolver
+  ├── tenant_id
+  ├── user
+  └── role
   │
   ▼
 TenantContext
   │
-  ▼
-SET LOCAL ROLE tenantguard_app
+  ├──────────────► PostgreSQL 17
+  │                  ├── tenant-aware queries
+  │                  ├── SET LOCAL ROLE tenantguard_app
+  │                  ├── app.current_tenant
+  │                  ├── Row Level Security
+  │                  └── Audit Events + RLS
   │
-  ▼
-app.current_tenant
+  ├──────────────► Micrometer / Actuator
+  │                    │
+  │                    ▼
+  │                Prometheus
   │
-  ▼
-Service / Repository
+  ├──────────────► JSON Logs ──► Promtail ──► Loki
   │
-  ▼
-Hibernate / JPA
-  │
-  ▼
-PostgreSQL Row Level Security
+  └──────────────► OpenTelemetry ───────────► Tempo
+                                               │
+                                               ▼
+                                            Grafana
 ```
 
 ### Defesa em profundidade
@@ -96,59 +98,47 @@ Somente linhas do tenant autenticado
 
 ## 🚀 Stack
 
-### Backend
+### Backend e segurança
 
 - Java 21
 - Spring Boot 3.5
 - Spring Security
-- Spring Data JPA
-- Hibernate
+- JWT
+- RBAC — Role-Based Access Control
+- Spring Data JPA / Hibernate
+- Tenant Resolver / Tenant Context
+- PostgreSQL Row Level Security
+- Flyway
 - Maven
 
-### Segurança
+### Observabilidade
 
-- JWT
-- Spring Security
-- RBAC — Role-Based Access Control
-- Tenant Resolver
-- Tenant Context
-- Isolamento por `tenant_id`
-- PostgreSQL Row Level Security (RLS)
-- Role de aplicação sem privilégios de superusuário
-- Defesa em profundidade Application + Database
+- Spring Boot Actuator
+- Micrometer
+- Prometheus
+- Grafana
+- Logs estruturados JSON
+- Loki
+- Promtail
+- OpenTelemetry
+- Grafana Tempo
+- Correlação por `requestId`, `traceId`, `spanId` e `tenant_id`
 
-### Banco de dados
+### Qualidade e infraestrutura
 
-- PostgreSQL 17
-- Flyway
-- Row Level Security
-
-### Infraestrutura e qualidade
-
-- Docker
-- Docker Compose
-- GitHub Actions CI
+- Docker / Docker Compose
 - OpenAPI / Swagger
 - JUnit 5
 - MockMvc
 - Testcontainers
 - PostgreSQL Testcontainer
+- GitHub Actions CI
 
 ---
 
 ## 🏢 Estratégia Multi-Tenant
 
-```text
-Shared Database
-      +
-Shared Schema
-      +
-tenant_id
-      +
-PostgreSQL RLS
-```
-
-Exemplo conceitual da tabela de pedidos:
+Exemplo conceitual da tabela `orders`:
 
 | id | description | tenant_id |
 |---:|---|---|
@@ -158,15 +148,11 @@ Exemplo conceitual da tabela de pedidos:
 | 4 | Pedido C-001 | TENANT_C |
 | 5 | Pedido C-002 | TENANT_C |
 
-Mesmo compartilhando a mesma tabela, cada tenant visualiza somente seus próprios registros.
+Mesmo compartilhando a tabela, cada tenant visualiza somente os próprios registros.
 
----
+### PostgreSQL Row Level Security
 
-## 🔐 PostgreSQL Row Level Security
-
-A aplicação utiliza **RLS como segunda barreira de isolamento**. A migration habilita e força Row Level Security na tabela `orders` e define uma política baseada no tenant da sessão do PostgreSQL.
-
-Conceitualmente:
+A aplicação habilita e força RLS na tabela `orders` e utiliza uma policy baseada no tenant configurado na sessão PostgreSQL.
 
 ```sql
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
@@ -178,7 +164,7 @@ USING (tenant_id = current_setting('app.current_tenant', true))
 WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
 ```
 
-Antes das operações de negócio, a aplicação associa o tenant autenticado à transação:
+Antes das operações protegidas:
 
 ```text
 JWT
@@ -192,31 +178,30 @@ set_config('app.current_tenant', tenantId, true)
 PostgreSQL RLS
 ```
 
-O `WITH CHECK` também impede que a role da aplicação grave uma linha pertencente a outro tenant.
+O `WITH CHECK` impede que a role da aplicação grave registros para outro tenant.
 
 ---
 
 ## 👥 RBAC — Role-Based Access Control
 
-O TenantGuard separa **autenticação**, **autorização** e **isolamento de tenant**.
-
-O claim `role` do JWT é convertido em uma authority do Spring Security:
+O claim `role` é convertido em authority do Spring Security:
 
 ```text
 USER  → ROLE_USER
 ADMIN → ROLE_ADMIN
 ```
 
-Endpoints administrativos são protegidos por `hasRole("ADMIN")`.
+Endpoints administrativos usam `hasRole("ADMIN")`.
 
-Validação realizada:
+Validações realizadas:
 
 ```text
-user-a  → GET /api/admin/status → 403 Forbidden
-admin-a → GET /api/admin/status → 200 OK
+USER    → /api/admin/** → 403 Forbidden
+ADMIN   → /api/admin/** → 200 OK
+sem JWT → endpoint protegido → 401 Unauthorized
 ```
 
-Mesmo um `ADMIN` continua limitado ao seu próprio tenant. Os testes automatizados comprovam que `ADMIN` do `TENANT_A` não consegue acessar dados do `TENANT_B`.
+Possuir `ROLE_ADMIN` **não concede acesso global**. O administrador continua restrito ao tenant presente no JWT.
 
 ---
 
@@ -229,24 +214,128 @@ Mesmo um `ADMIN` continua limitado ao seu próprio tenant. Os testes automatizad
 | `user-c` | `password` | `TENANT_C` | `USER` |
 | `admin-a` | `password` | `TENANT_A` | `ADMIN` |
 
-> ⚠️ As credenciais são utilizadas exclusivamente para demonstração e desenvolvimento local.
+> As credenciais acima existem exclusivamente para demonstração e ambiente local.
 
 ---
 
-## 📦 Pedidos de demonstração
+## 🔎 Auditoria persistente por tenant
+
+A migration `V3__create_audit_events.sql` cria `audit_events` com RLS e índices para tenant, data e trace.
+
+Eventos atualmente registrados:
 
 ```text
-TENANT_A
-├── Pedido A-001
-└── Pedido A-002
-
-TENANT_B
-└── Pedido B-001
-
-TENANT_C
-├── Pedido C-001
-└── Pedido C-002
+ORDER_LIST
+ORDER_READ
+ORDER_CREATE
 ```
+
+Cada evento armazena:
+
+| Campo | Finalidade |
+|---|---|
+| `tenantId` | Tenant responsável pela operação |
+| `username` | Usuário autenticado |
+| `action` | Ação executada |
+| `resourceType` | Tipo do recurso |
+| `resourceId` | Identificador do recurso, quando aplicável |
+| `outcome` | Resultado da ação |
+| `requestId` | Correlação da requisição HTTP |
+| `traceId` | Correlação com tracing distribuído |
+| `createdAt` | Data/hora UTC |
+
+Endpoint administrativo:
+
+```http
+GET /api/admin/audit-events
+Authorization: Bearer <ADMIN_JWT>
+```
+
+Validação funcional realizada:
+
+```text
+user-b  / TENANT_B / USER  → 403
+admin-a / TENANT_A / ADMIN → 200
+```
+
+O `admin-a` recebeu somente eventos do `TENANT_A`, mesmo após tráfego produzido pelo `TENANT_B`, comprovando que RBAC e isolamento de tenant permanecem complementares.
+
+Exemplo:
+
+```json
+{
+  "tenantId": "TENANT_A",
+  "username": "user-a",
+  "action": "ORDER_READ",
+  "resourceType": "ORDER",
+  "resourceId": "1",
+  "outcome": "SUCCESS",
+  "requestId": "<request-id>",
+  "traceId": "<trace-id>"
+}
+```
+
+---
+
+## 📊 Sprint 4 — Observabilidade Enterprise ✅
+
+A Sprint 4 evoluiu o TenantGuard de uma PoC focada em segurança Multi-Tenant para um case de backend com métricas, logs estruturados, tracing e auditoria.
+
+| Etapa | Status | Resultado |
+|---:|:---:|---|
+| 1 | ✅ | Micrometer + Actuator |
+| 2 | ✅ | Prometheus |
+| 3 | ✅ | Grafana Dashboard |
+| 4 | ✅ | Logs JSON + Loki + Promtail + correlação por tenant |
+| 5 | ✅ | OpenTelemetry + Tempo + `traceId` / `spanId` nos logs |
+| 6 | ✅ | Auditoria persistente por tenant protegida por RLS |
+
+### Prometheus
+
+A aplicação expõe métricas Micrometer através do Actuator, coletadas pelo Prometheus.
+
+```text
+http://localhost:8081/actuator/prometheus
+http://localhost:9090
+```
+
+### Grafana
+
+Dashboard provisionado para acompanhar:
+
+- HTTP Throughput
+- Average HTTP Latency
+- JVM Memory Used
+- Application CPU Usage
+- JVM Live Threads
+- HikariCP Connections
+
+```text
+http://localhost:3000
+```
+
+### Logs estruturados + Loki
+
+Os logs JSON incluem dados de correlação como:
+
+```text
+tenant_id
+user
+role
+requestId
+traceId
+spanId
+status
+durationMs
+```
+
+O Promtail coleta os arquivos estruturados e os envia ao Loki para consulta no Grafana Explore.
+
+### OpenTelemetry + Tempo
+
+O projeto utiliza Micrometer Tracing com bridge OpenTelemetry e exportação OTLP para Tempo. A correlação `traceId`/`spanId` foi validada nos logs estruturados, permitindo relacionar requisições, logs e auditoria.
+
+> O sampling está configurado em `1.0` para a PoC. Em produção deve ser ajustado conforme volume, custo e política de observabilidade.
 
 ---
 
@@ -260,20 +349,33 @@ TENANT_C
 ```bash
 git clone https://github.com/juceliocoelho2022/tenantguard-java.git
 cd tenantguard-java
-docker compose up --build
+docker compose up --build -d
 ```
 
-Aplicação:
+Serviços locais:
 
-```text
-http://localhost:8081
+| Serviço | URL / Porta |
+|---|---|
+| TenantGuard API | `http://localhost:8081` |
+| Swagger UI | `http://localhost:8081/swagger-ui/index.html` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
+| Loki | `http://localhost:3100` |
+| Tempo | `http://localhost:3200` |
+| PostgreSQL | `localhost:5432` |
+
+Para acompanhar containers:
+
+```bash
+docker compose ps
+docker compose logs app --tail=100
 ```
 
 ---
 
-## 🔑 Autenticação
+## 🔑 Autenticação e Swagger
 
-### Login do Tenant A
+Login:
 
 ```http
 POST /api/auth/login
@@ -286,242 +388,66 @@ POST /api/auth/login
 }
 ```
 
-Exemplo de resposta:
-
-```json
-{
-  "accessToken": "<JWT_TOKEN>",
-  "tokenType": "Bearer",
-  "tenantId": "TENANT_A"
-}
-```
-
-O JWT contém o tenant e o papel associados ao usuário autenticado.
-
----
-
-## 📖 OpenAPI / Swagger
-
-A API possui documentação interativa através do Springdoc OpenAPI.
-
-Com a aplicação em execução localmente, o Swagger UI permite realizar login, autorizar requisições com Bearer JWT e testar endpoints protegidos.
-
-Exemplo usado durante o desenvolvimento:
+Depois copie o JWT retornado, abra o Swagger e use **Authorize**.
 
 ```text
-http://localhost:8082/swagger-ui/index.html
-```
-
-> A porta pode variar conforme a configuração utilizada para executar a aplicação.
-
----
-
-## 📋 Consultando pedidos
-
-```http
-GET /api/orders
-Authorization: Bearer <TOKEN>
-```
-
-Com um token de `TENANT_A`, o resultado esperado contém somente:
-
-```json
-[
-  {
-    "id": 1,
-    "description": "Pedido A-001"
-  },
-  {
-    "id": 2,
-    "description": "Pedido A-002"
-  }
-]
+http://localhost:8081/swagger-ui/index.html
 ```
 
 ---
 
-## 🛡️ Teste de isolamento entre tenants
+## 🛡️ Testes de isolamento
 
-O pedido de ID `3` pertence ao `TENANT_B`.
+O pedido `3` pertence ao `TENANT_B`:
 
 ```text
-TENANT_A ──► /api/orders/3 ──► 404 Not Found
-TENANT_B ──► /api/orders/3 ──► 200 OK ──► Pedido B-001
+TENANT_A ──► GET /api/orders/3 ──► 404 Not Found
+TENANT_B ──► GET /api/orders/3 ──► 200 OK
 ```
 
-Além do filtro na aplicação, testes específicos comprovam que o PostgreSQL RLS:
+Os testes também comprovam que o PostgreSQL RLS:
 
-- filtra linhas por tenant mesmo quando uma consulta SQL não possui predicate explícito de `tenant_id`;
-- impede inserções cross-tenant através da política `WITH CHECK`.
-
-Isso protege contra **acesso horizontal indevido entre tenants** e reduz o impacto de uma consulta que esqueça acidentalmente o filtro de tenant.
+- filtra linhas por tenant mesmo sem predicate explícito de `tenant_id` no SQL;
+- bloqueia inserções cross-tenant através do `WITH CHECK`;
+- mantém administradores limitados ao tenant autenticado;
+- protege a leitura dos registros de auditoria por tenant.
 
 ---
 
 ## 🧪 Testes automatizados e CI
 
-Os testes utilizam PostgreSQL real em container através do Testcontainers.
+A suíte utiliza PostgreSQL real via Testcontainers.
 
 ```bash
-mvn test
+mvn clean test
 ```
 
-Atualmente a suíte valida isolamento da API, PostgreSQL RLS e RBAC, incluindo cenários `USER → 403`, `ADMIN → 200` e isolamento cross-tenant para administradores.
-
-O workflow **TenantGuard CI** executa automaticamente o build e os testes a cada `push` e `pull request` na branch `main`.
+Última validação local da Sprint 4:
 
 ```text
-Push / Pull Request
-        │
-        ▼
-GitHub Actions
-        │
-        ▼
-Java 21 + Maven
-        │
-        ▼
-Testcontainers + PostgreSQL
-        │
-        ▼
-Integration Tests
-        │
-        ▼
-✅ Build validado
+Tests run: 11
+Failures: 0
+Errors: 0
+Skipped: 0
+BUILD SUCCESS
 ```
 
----
+A cobertura de integração inclui isolamento multi-tenant, RLS, RBAC, respostas explícitas `401/403` e auditoria por tenant.
 
-# 📊 Sprint 4 — Observabilidade Enterprise
-
-## Objetivo
-
-Transformar o **TenantGuard** em um SaaS monitorável em produção, adicionando **métricas, logs estruturados, tracing distribuído e auditoria por tenant**.
-
-A proposta da sprint é evoluir o projeto de uma PoC de segurança Multi-Tenant para um case de backend com práticas de observabilidade utilizadas em ambientes de produção.
-
-## 🏗️ Arquitetura final planejada
-
-```text
-                         ┌──────────────────┐
-                         │    Prometheus    │
-                         │     métricas     │
-                         └────────▲─────────┘
-                                  │
-┌──────────────┐        ┌─────────┴──────────┐        ┌──────────────────┐
-│   Usuário    │───────►│    Spring Boot     │───────►│     Grafana      │
-│ JWT/tenant_id│        │ Security + RBAC    │        │    Dashboards    │
-└──────────────┘        │ Micrometer + OTel  │        │     Alertas      │
-                        └─────┬────┬────┬────┘        └──────────────────┘
-                              │    │    │
-                    ┌─────────┘    │    └──────────┐
-                    ▼              ▼               ▼
-             ┌────────────┐  ┌────────────┐  ┌────────────┐
-             │ PostgreSQL │  │    Loki    │  │   Tempo    │
-             │RLS + Audit │  │ logs JSON  │  │  tracing   │
-             └────────────┘  └────────────┘  └────────────┘
-```
-
-## 🔭 O que vamos implementar
-
-### Micrometer
-
-Métricas de requisições HTTP, JVM, recursos da aplicação e integração com o ecossistema de observabilidade do Spring Boot.
-
-### Prometheus
-
-Coleta das métricas expostas pela aplicação para acompanhamento de disponibilidade, throughput e latência.
-
-### Grafana
-
-Dashboard profissional para visualizar métricas operacionais, latência, volume de requisições e comportamento da aplicação.
-
-### Logs estruturados JSON
-
-Logs preparados para correlação contendo informações como:
-
-```text
-tenant_id
-user
-requestId
-traceId
-```
-
-### OpenTelemetry
-
-Tracing distribuído para acompanhar o ciclo de uma requisição e facilitar a investigação de latência e falhas.
-
-### Auditoria por tenant
-
-Registro de quem executou uma operação, quando ela ocorreu e em qual tenant, mantendo auditoria e isolamento como responsabilidades complementares.
-
-## 🧭 Estrutura da Sprint
-
-| Etapa | Resultado |
-|---:|---|
-| 1 | Micrometer + Actuator |
-| 2 | Prometheus |
-| 3 | Grafana Dashboard |
-| 4 | Logs estruturados JSON |
-| 5 | OpenTelemetry |
-| 6 | Auditoria por tenant |
-
-## 📈 Dashboard planejado
-
-O dashboard deverá permitir acompanhar, entre outros indicadores:
-
-- throughput e volume de requisições;
-- latência e tempo de resposta;
-- status e saúde da aplicação;
-- métricas da JVM;
-- erros HTTP;
-- logs correlacionados por `tenant_id`, `requestId` e `traceId`;
-- traces distribuídos através do OpenTelemetry/Tempo.
-
-> As imagens de referência do dashboard serão substituídas por screenshots reais do TenantGuard assim que Prometheus, Grafana, Loki e Tempo estiverem configurados. Isso evita apresentar dashboards de terceiros como se fossem resultados do projeto.
+O workflow **TenantGuard CI** executa automaticamente build e testes em `push` e `pull request` para `main`.
 
 ---
 
 ## 🔒 Decisões de segurança
 
-### Tenant não controlado pelo cliente
-
-O `tenantId` não é recebido através de query string ou body. O tenant é obtido a partir do JWT validado.
-
-### JWT com `tenant_id` e `role`
-
-Os claims `tenant_id` e `role` determinam o contexto de tenant e as authorities utilizadas pelo Spring Security.
-
-### TenantContext
-
-O contexto utiliza `ThreadLocal` e é obrigatoriamente limpo ao final da requisição:
-
-```java
-try {
-    filterChain.doFilter(request, response);
-} finally {
-    TenantContext.clear();
-}
-```
-
-### Consultas tenant-aware
-
-Consultas individuais utilizam:
-
-```text
-findByIdAndTenantId(id, tenantId)
-```
-
-### RLS no banco de dados
-
-Mesmo com consultas tenant-aware, o PostgreSQL aplica sua própria política de isolamento. Isso implementa **defesa em profundidade**.
-
-### RBAC não ignora o tenant
-
-Possuir `ROLE_ADMIN` não concede acesso global aos dados. O tenant continua sendo aplicado pela aplicação e pelo PostgreSQL RLS.
-
-### 404 para recursos de outros tenants
-
-A API retorna `404 Not Found` em vez de revelar a existência de um recurso pertencente a outra organização.
+- O cliente não escolhe o `tenantId`; ele vem do JWT validado.
+- `ROLE_ADMIN` não ignora isolamento de tenant.
+- Recursos pertencentes a outro tenant retornam `404` para não revelar sua existência.
+- Consultas tenant-aware e PostgreSQL RLS são usados juntos como defesa em profundidade.
+- `TenantContext` é limpo ao final da requisição.
+- A role PostgreSQL `tenantguard_app` é utilizada para executar operações sujeitas a RLS.
+- A tabela de auditoria possui sua própria policy de RLS.
+- Respostas de autenticação/autorização utilizam handlers REST explícitos para `401` e `403`.
 
 ---
 
@@ -532,13 +458,22 @@ src
 ├── main
 │   ├── java/com/jucelio/tenantguard
 │   │   ├── admin
+│   │   ├── audit
 │   │   ├── auth
 │   │   ├── config
 │   │   ├── order
 │   │   ├── security
 │   │   └── tenant
-│   └── resources/db/migration
+│   └── resources
+│       └── db/migration
 └── test/java/com/jucelio/tenantguard
+
+observability
+├── grafana
+├── loki
+├── prometheus
+├── promtail
+└── tempo
 
 .github
 └── workflows
@@ -549,9 +484,9 @@ src
 
 ## ⚠️ Escopo do projeto
 
-Este projeto é uma **Proof of Concept (PoC)** criada para estudo e demonstração de arquitetura Multi-Tenant segura.
+Este projeto é uma **Proof of Concept** criada para estudo, ensino, portfólio e demonstração arquitetural. Ele não deve ser tratado como um SaaS pronto para produção.
 
-Ele não deve ser considerado uma implementação SaaS pronta para produção. Em produção seriam necessários mecanismos adicionais de gestão de secrets, identidade centralizada, observabilidade, auditoria, autorização e hardening de infraestrutura.
+Em um ambiente real ainda seriam recomendados, entre outros pontos: secrets management, identidade centralizada, credenciais separadas para migrations e runtime, datasource sem privilégios administrativos, políticas de retenção, alertas, tracing sampling adequado, TLS, rate limiting e hardening da infraestrutura.
 
 ---
 
@@ -567,15 +502,14 @@ Ele não deve ser considerado uma implementação SaaS pronta para produção. E
 - [x] PostgreSQL Row Level Security — RLS
 - [x] RBAC — Role-Based Access Control
 - [x] OpenAPI / Swagger
-
-### Sprint 4 — Observabilidade Enterprise
-
-- [ ] Micrometer + Actuator
-- [ ] Prometheus
-- [ ] Grafana Dashboard
-- [ ] Logs estruturados JSON
-- [ ] OpenTelemetry / Tempo
-- [ ] Auditoria por tenant
+- [x] Micrometer + Actuator
+- [x] Prometheus
+- [x] Grafana Dashboard
+- [x] Logs estruturados JSON
+- [x] Loki + Promtail
+- [x] OpenTelemetry + Tempo
+- [x] Auditoria persistente por tenant
+- [x] REST handlers explícitos para `401` e `403`
 
 ### Próximas evoluções
 
@@ -595,16 +529,13 @@ Ele não deve ser considerado uma implementação SaaS pronta para produção. E
 
 ## 👨‍💻 Autor
 
-**Jucelio Farias Coelho**
-
+**Jucelio Farias Coelho**  
 Java Backend Developer
 
-`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `RBAC` • `OpenAPI` • `Testcontainers` • `Multi-Tenant Architecture` • `PostgreSQL RLS`
+`Java` • `Spring Boot` • `APIs REST` • `PostgreSQL` • `Docker` • `Spring Security` • `JWT` • `RBAC` • `OpenAPI` • `Testcontainers` • `Multi-Tenant Architecture` • `RLS` • `Prometheus` • `Grafana` • `Loki` • `OpenTelemetry`
 
 ---
 
 ## 📄 Aviso
 
-As credenciais, usuários e configurações de segurança presentes neste projeto são destinados **exclusivamente para demonstração e ambiente local**.
-
-Não utilize secrets, senhas ou credenciais demonstrativas deste projeto em ambientes de produção.
+Credenciais, usuários e configurações presentes no projeto destinam-se **exclusivamente a demonstração e desenvolvimento local**. Não reutilize secrets ou senhas demonstrativas em ambientes reais.

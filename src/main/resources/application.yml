@@ -5,7 +5,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tenantguard}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:89327934}
+    password: ${SPRING_DATASOURCE_PASSWORD:tenantguard}
 
   jpa:
     open-in-view: false
@@ -20,6 +20,27 @@ spring:
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+
+info:
+  app:
+    name: TenantGuard Java
+    description: Secure Multi-Tenant SaaS demo with JWT, RBAC and PostgreSQL RLS
+    version: 0.0.1-SNAPSHOT
 
 app:
   jwt:
