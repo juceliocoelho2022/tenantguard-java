@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -10,6 +11,8 @@ import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class AuthRateLimitFilterTest {
 
@@ -20,7 +23,8 @@ class AuthRateLimitFilterTest {
                 ZoneOffset.UTC
         );
         AuthRateLimitService service = new AuthRateLimitService(1, 10, 60, clock);
-        AuthRateLimitFilter filter = new AuthRateLimitFilter(service);
+        SecurityEventService securityEventService = mock(SecurityEventService.class);
+        AuthRateLimitFilter filter = new AuthRateLimitFilter(service, securityEventService);
         AtomicInteger chainCalls = new AtomicInteger();
 
         MockHttpServletRequest firstRequest = loginRequest();
@@ -39,6 +43,14 @@ class AuthRateLimitFilterTest {
         assertEquals("1", secondResponse.getHeader("X-RateLimit-Limit"));
         assertEquals("0", secondResponse.getHeader("X-RateLimit-Remaining"));
         assertTrue(secondResponse.getContentAsString().contains("rate_limit_exceeded"));
+
+        verify(securityEventService).record(
+                eq(secondRequest),
+                eq("RATE_LIMIT_EXCEEDED"),
+                eq(429),
+                isNull(),
+                anyString()
+        );
     }
 
     private MockHttpServletRequest loginRequest() {
