@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +20,7 @@ public class AuthRateLimitService {
     private final Clock clock;
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
+    @Autowired
     public AuthRateLimitService(
             @Value("${app.security.rate-limit.login.max-attempts:5}") int loginMaxAttempts,
             @Value("${app.security.rate-limit.refresh.max-attempts:10}") int refreshMaxAttempts,
