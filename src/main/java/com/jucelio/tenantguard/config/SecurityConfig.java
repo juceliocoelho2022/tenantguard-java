@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.config;
 
+import com.jucelio.tenantguard.security.AuthRateLimitFilter;
 import com.jucelio.tenantguard.security.JwtAuthenticationFilter;
 import com.jucelio.tenantguard.security.RestAccessDeniedHandler;
 import com.jucelio.tenantguard.security.RestAuthenticationEntryPoint;
@@ -16,6 +17,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
+            AuthRateLimitFilter authRateLimitFilter,
             JwtAuthenticationFilter jwtFilter,
             RestAuthenticationEntryPoint authenticationEntryPoint,
             RestAccessDeniedHandler accessDeniedHandler) throws Exception {
@@ -45,8 +47,12 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(
-                        jwtFilter,
+                        authRateLimitFilter,
                         UsernamePasswordAuthenticationFilter.class
+                )
+                .addFilterAfter(
+                        jwtFilter,
+                        AuthRateLimitFilter.class
                 )
                 .build();
     }
