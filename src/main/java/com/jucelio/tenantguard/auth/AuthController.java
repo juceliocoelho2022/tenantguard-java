@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.auth;
 
+import com.jucelio.tenantguard.observability.AuthenticationMetrics;
 import com.jucelio.tenantguard.security.AuthenticatedUser;
 import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +17,7 @@ public class AuthController {
 
     private final AuthTokenService authTokenService;
     private final SecurityEventService securityEventService;
+    private final AuthenticationMetrics authenticationMetrics;
 
     private static final Map<String, DemoUser> USERS = Map.of(
             "user-a", new DemoUser("password", "TENANT_A", "USER"),
@@ -24,9 +26,13 @@ public class AuthController {
             "admin-a", new DemoUser("password", "TENANT_A", "ADMIN")
     );
 
-    public AuthController(AuthTokenService authTokenService, SecurityEventService securityEventService) {
+    public AuthController(
+            AuthTokenService authTokenService,
+            SecurityEventService securityEventService,
+            AuthenticationMetrics authenticationMetrics) {
         this.authTokenService = authTokenService;
         this.securityEventService = securityEventService;
+        this.authenticationMetrics = authenticationMetrics;
     }
 
     @PostMapping("/login")
@@ -34,6 +40,7 @@ public class AuthController {
         DemoUser demoUser = USERS.get(request.username());
 
         if (demoUser == null || !demoUser.password().equals(request.password())) {
+            authenticationMetrics.record("login", "failure");
             securityEventService.record(httpRequest, "LOGIN_FAILED", 401, request.username(), "Invalid credentials");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Credenciais inválidas.");
         }
@@ -44,14 +51,19 @@ public class AuthController {
                 demoUser.role()
         );
 
-        return authTokenService.issueTokens(user);
+        LoginResponse response = authTokenService.issueTokens(user);
+        authenticationMetrics.record("login", "success");
+        return response;
     }
 
     @PostMapping("/refresh")
     public LoginResponse refresh(@Valid @RequestBody RefreshTokenRequest request, HttpServletRequest httpRequest) {
         try {
-            return authTokenService.rotate(request.refreshToken());
+            LoginResponse response = authTokenService.rotate(request.refreshToken());
+            authenticationMetrics.record("refresh", "success");
+            return response;
         } catch (Exception ex) {
+            authenticationMetrics.record("refresh", "failure");
             securityEventService.record(httpRequest, "REFRESH_FAILED", 401, null, "Refresh token invalid, expired, revoked, or replayed");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido, expirado ou revogado.");
         }
@@ -62,7 +74,9 @@ public class AuthController {
     public void logout(@Valid @RequestBody RefreshTokenRequest request, HttpServletRequest httpRequest) {
         try {
             authTokenService.revoke(request.refreshToken());
+            authenticationMetrics.record("logout", "success");
         } catch (Exception ex) {
+            authenticationMetrics.record("logout", "failure");
             securityEventService.record(httpRequest, "LOGOUT_FAILED", 401, null, "Refresh token invalid, expired, or already revoked");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido, expirado ou revogado.");
         }
