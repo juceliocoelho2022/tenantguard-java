@@ -21,15 +21,15 @@ module "vpc" {
   cidr = var.vpc_cidr
   azs  = local.azs
 
-  private_subnets   = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i)]
-  public_subnets    = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 4)]
-  database_subnets  = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 8)]
+  private_subnets     = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i)]
+  public_subnets      = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 4)]
+  database_subnets    = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 8)]
   elasticache_subnets = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 12)]
 
-  enable_nat_gateway     = true
-  single_nat_gateway     = true
-  enable_dns_hostnames   = true
-  create_database_subnet_group   = true
+  enable_nat_gateway              = true
+  single_nat_gateway              = true
+  enable_dns_hostnames            = true
+  create_database_subnet_group    = true
   create_elasticache_subnet_group = true
 
   public_subnet_tags = {
@@ -63,6 +63,10 @@ module "eks" {
       before_compute = true
     }
     metrics-server = {}
+    eks-pod-identity-agent = {
+      before_compute = true
+    }
+    aws-secrets-store-csi-driver-provider = {}
   }
 
   eks_managed_node_groups = {
@@ -123,13 +127,13 @@ resource "aws_db_instance" "postgres" {
   db_subnet_group_name   = module.vpc.database_subnet_group_name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  publicly_accessible    = false
-  multi_az               = false
-  deletion_protection    = true
-  skip_final_snapshot    = false
+  publicly_accessible        = false
+  multi_az                   = false
+  deletion_protection       = true
+  skip_final_snapshot       = false
   final_snapshot_identifier = "${local.name}-final"
 
-  backup_retention_period = 7
+  backup_retention_period   = 7
   auto_minor_version_upgrade = true
 }
 
