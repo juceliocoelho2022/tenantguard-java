@@ -133,7 +133,7 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot       = false
   final_snapshot_identifier = "${local.name}-final"
 
-  backup_retention_period   = 7
+  backup_retention_period    = 7
   auto_minor_version_upgrade = true
 }
 
@@ -191,6 +191,7 @@ resource "aws_secretsmanager_secret_version" "database" {
     database = var.db_name
     username = var.db_username
     password = random_password.db.result
+    url      = "jdbc:postgresql://${aws_db_instance.postgres.address}:${aws_db_instance.postgres.port}/${var.db_name}"
   })
 }
 
