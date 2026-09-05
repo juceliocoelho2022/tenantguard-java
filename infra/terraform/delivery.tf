@@ -89,7 +89,33 @@ resource "aws_iam_role_policy" "github_actions_delivery" {
           "ecr:UploadLayerPart"
         ]
         Resource = aws_ecr_repository.tenantguard.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster"
+        ]
+        Resource = module.eks.cluster_arn
       }
     ]
   })
+}
+
+resource "aws_eks_access_entry" "github_actions_delivery" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = aws_iam_role.github_actions_delivery.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "github_actions_delivery" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = aws_iam_role.github_actions_delivery.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+
+  access_scope {
+    type       = "namespace"
+    namespaces = ["default"]
+  }
+
+  depends_on = [aws_eks_access_entry.github_actions_delivery]
 }
