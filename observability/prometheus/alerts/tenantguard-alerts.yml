@@ -1,0 +1,51 @@
+groups:
+  - name: tenantguard-availability
+    rules:
+      - alert: TenantGuardDown
+        expr: up{job="tenantguard-java"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TenantGuard is unavailable"
+          description: "Prometheus has been unable to scrape TenantGuard for at least 1 minute."
+
+      - alert: TenantGuardHigh5xxRate
+        expr: sum(rate(http_server_requests_seconds_count{application="tenantguard-java",status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{application="tenantguard-java"}[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TenantGuard HTTP 5xx rate is high"
+          description: "More than 5% of HTTP requests have returned 5xx responses for 5 minutes."
+
+  - name: tenantguard-security
+    rules:
+      - alert: TenantGuardAuthenticationFailures
+        expr: sum(rate(tenantguard_auth_operations_total{operation="login",outcome="failure"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated authentication failures"
+          description: "Login failures are above 0.1 requests/second for 5 minutes."
+
+      - alert: TenantGuardRateLimitPressure
+        expr: sum(rate(tenantguard_auth_rate_limit_blocked_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Authentication endpoints are being rate limited"
+          description: "Rate-limit blocks are above 0.05 requests/second for 5 minutes."
+
+  - name: tenantguard-runtime
+    rules:
+      - alert: TenantGuardHighCpuUsage
+        expr: process_cpu_usage{application="tenantguard-java"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TenantGuard CPU usage is high"
+          description: "Application process CPU usage has remained above 85% for 10 minutes."
