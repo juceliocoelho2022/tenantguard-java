@@ -10,9 +10,13 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
+    && groupadd --gid 10001 tenantguard \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin tenantguard \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/target/tenantguard-java-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=build --chown=10001:10001 /app/target/tenantguard-java-0.0.1-SNAPSHOT.jar app.jar
+
+USER 10001:10001
 
 EXPOSE 8080
 
