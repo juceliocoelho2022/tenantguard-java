@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenantguard-service
+  labels:
+    app: tenantguard-app
+spec:
+  selector:
+    app: tenantguard-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
