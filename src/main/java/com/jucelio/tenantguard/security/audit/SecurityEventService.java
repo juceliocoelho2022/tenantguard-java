@@ -1,6 +1,7 @@
 package com.jucelio.tenantguard.security.audit;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
+import com.jucelio.tenantguard.tenant.RlsTenantGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +21,13 @@ public class SecurityEventService {
     private static final Logger log = LoggerFactory.getLogger(SecurityEventService.class);
 
     private final SecurityEventRepository repository;
+    private final RlsTenantGuard rlsTenantGuard;
 
-    public SecurityEventService(SecurityEventRepository repository) {
+    public SecurityEventService(
+            SecurityEventRepository repository,
+            RlsTenantGuard rlsTenantGuard) {
         this.repository = repository;
+        this.rlsTenantGuard = rlsTenantGuard;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -31,6 +36,12 @@ public class SecurityEventService {
             AuthenticatedUser authenticatedUser = currentUser();
             String effectiveUsername = username != null ? username : authenticatedUser == null ? null : authenticatedUser.username();
             String tenantId = authenticatedUser == null ? null : authenticatedUser.tenantId();
+
+            if (tenantId == null) {
+                rlsTenantGuard.applyAuditWriter();
+            } else {
+                rlsTenantGuard.applyTenant(tenantId);
+            }
 
             repository.save(new SecurityEvent(
                     eventType,
