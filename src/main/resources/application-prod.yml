@@ -8,3 +8,8 @@ management:
   tracing:
     sampling:
       probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:0.1}
+
+app:
+  security:
+    rate-limit:
+      backend: redis
