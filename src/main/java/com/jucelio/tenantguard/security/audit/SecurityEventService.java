@@ -21,12 +21,15 @@ public class SecurityEventService {
     private static final Logger log = LoggerFactory.getLogger(SecurityEventService.class);
 
     private final SecurityEventRepository repository;
+    private final SecurityEventAuditWriter auditWriter;
     private final RlsTenantGuard rlsTenantGuard;
 
     public SecurityEventService(
             SecurityEventRepository repository,
+            SecurityEventAuditWriter auditWriter,
             RlsTenantGuard rlsTenantGuard) {
         this.repository = repository;
+        this.auditWriter = auditWriter;
         this.rlsTenantGuard = rlsTenantGuard;
     }
 
@@ -36,13 +39,26 @@ public class SecurityEventService {
             AuthenticatedUser authenticatedUser = currentUser();
             String effectiveUsername = username != null ? username : authenticatedUser == null ? null : authenticatedUser.username();
             String tenantId = authenticatedUser == null ? null : authenticatedUser.tenantId();
+            OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC);
 
             if (tenantId == null) {
                 rlsTenantGuard.applyAuditWriter();
-            } else {
-                rlsTenantGuard.applyTenant(tenantId);
+                auditWriter.insert(
+                        eventType,
+                        httpStatus,
+                        effectiveUsername,
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        request.getRemoteAddr(),
+                        MDC.get("requestId"),
+                        MDC.get("traceId"),
+                        details,
+                        createdAt
+                );
+                return;
             }
 
+            rlsTenantGuard.applyTenant(tenantId);
             repository.save(new SecurityEvent(
                     eventType,
                     httpStatus,
@@ -54,7 +70,7 @@ public class SecurityEventService {
                     MDC.get("requestId"),
                     MDC.get("traceId"),
                     details,
-                    OffsetDateTime.now(ZoneOffset.UTC)
+                    createdAt
             ));
         } catch (Exception ex) {
             log.warn("security_event_audit_failed eventType={} status={} path={}",
