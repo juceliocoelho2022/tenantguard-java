@@ -7,6 +7,12 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
+
   jpa:
     open-in-view: false
     hibernate:
@@ -60,6 +66,7 @@ app:
     refresh-expiration-seconds: ${JWT_REFRESH_EXPIRATION_SECONDS:604800}
   security:
     rate-limit:
+      backend: ${AUTH_RATE_LIMIT_BACKEND:memory}
       window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:60}
       login:
         max-attempts: ${AUTH_LOGIN_MAX_ATTEMPTS:5}
