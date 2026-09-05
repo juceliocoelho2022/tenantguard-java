@@ -85,6 +85,21 @@ jobs:
             alb.ingress.kubernetes.io/ssl-policy="$ALB_SSL_POLICY" \
             --overwrite
 
+      - name: Revert ALB to HTTP when certificate is absent
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' && vars.ACM_CERTIFICATE_ARN == '' }}
+        run: |
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/listen-ports='[{"HTTP":80}]' \
+            --overwrite
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/certificate-arn- \
+            alb.ingress.kubernetes.io/ssl-redirect- \
+            alb.ingress.kubernetes.io/ssl-policy- || true
+
+      - name: Remove ALB ingress when disabled
+        if: ${{ vars.ENABLE_ALB_INGRESS != 'true' }}
+        run: kubectl delete ingress tenantguard-app --ignore-not-found=true
+
       - name: Deploy immutable image
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
