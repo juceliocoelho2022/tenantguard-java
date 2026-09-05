@@ -1,6 +1,7 @@
 package com.jucelio.tenantguard.security.audit;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
+import com.jucelio.tenantguard.tenant.RlsTenantGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +21,16 @@ public class SecurityEventService {
     private static final Logger log = LoggerFactory.getLogger(SecurityEventService.class);
 
     private final SecurityEventRepository repository;
+    private final SecurityEventAuditWriter auditWriter;
+    private final RlsTenantGuard rlsTenantGuard;
 
-    public SecurityEventService(SecurityEventRepository repository) {
+    public SecurityEventService(
+            SecurityEventRepository repository,
+            SecurityEventAuditWriter auditWriter,
+            RlsTenantGuard rlsTenantGuard) {
         this.repository = repository;
+        this.auditWriter = auditWriter;
+        this.rlsTenantGuard = rlsTenantGuard;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -31,7 +39,26 @@ public class SecurityEventService {
             AuthenticatedUser authenticatedUser = currentUser();
             String effectiveUsername = username != null ? username : authenticatedUser == null ? null : authenticatedUser.username();
             String tenantId = authenticatedUser == null ? null : authenticatedUser.tenantId();
+            OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC);
 
+            if (tenantId == null) {
+                rlsTenantGuard.applyAuditWriter();
+                auditWriter.insert(
+                        eventType,
+                        httpStatus,
+                        effectiveUsername,
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        request.getRemoteAddr(),
+                        MDC.get("requestId"),
+                        MDC.get("traceId"),
+                        details,
+                        createdAt
+                );
+                return;
+            }
+
+            rlsTenantGuard.applyTenant(tenantId);
             repository.save(new SecurityEvent(
                     eventType,
                     httpStatus,
@@ -43,7 +70,7 @@ public class SecurityEventService {
                     MDC.get("requestId"),
                     MDC.get("traceId"),
                     details,
-                    OffsetDateTime.now(ZoneOffset.UTC)
+                    createdAt
             ));
         } catch (Exception ex) {
             log.warn("security_event_audit_failed eventType={} status={} path={}",
