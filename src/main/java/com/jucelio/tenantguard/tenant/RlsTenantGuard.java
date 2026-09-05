@@ -13,7 +13,13 @@ public class RlsTenantGuard {
     }
 
     public void applyCurrentTenant() {
-        String tenantId = TenantContext.getTenant();
+        applyTenant(TenantContext.getTenant());
+    }
+
+    public void applyTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("Tenant não pode ser vazio para aplicar RLS.");
+        }
 
         jdbcTemplate.execute("SET LOCAL ROLE tenantguard_app");
         jdbcTemplate.queryForObject(
@@ -21,5 +27,9 @@ public class RlsTenantGuard {
                 String.class,
                 tenantId
         );
+    }
+
+    public void applyAuditWriter() {
+        jdbcTemplate.execute("SET LOCAL ROLE tenantguard_audit");
     }
 }
