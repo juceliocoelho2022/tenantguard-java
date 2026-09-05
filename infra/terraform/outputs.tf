@@ -38,3 +38,13 @@ output "github_actions_delivery_role_arn" {
   description = "IAM role assumed by GitHub Actions through OIDC for image delivery."
   value       = aws_iam_role.github_actions_delivery.arn
 }
+
+output "load_balancer_controller_role_arn" {
+  description = "Pod Identity IAM role used by the AWS Load Balancer Controller."
+  value       = aws_iam_role.load_balancer_controller.arn
+}
+
+output "github_actions_cluster_bootstrap_role_arn" {
+  description = "Protected GitHub Actions role used only for cluster-level controller bootstrap."
+  value       = aws_iam_role.github_actions_cluster_bootstrap.arn
+}
