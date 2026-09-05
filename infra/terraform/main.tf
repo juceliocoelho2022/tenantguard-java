@@ -57,7 +57,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   addons = {
-    coredns = {}
+    coredns    = {}
     kube-proxy = {}
     vpc-cni = {
       before_compute = true
@@ -127,8 +127,8 @@ resource "aws_db_instance" "postgres" {
   db_subnet_group_name   = module.vpc.database_subnet_group_name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  publicly_accessible        = false
-  multi_az                   = false
+  publicly_accessible       = false
+  multi_az                  = false
   deletion_protection       = true
   skip_final_snapshot       = false
   final_snapshot_identifier = "${local.name}-final"
@@ -176,7 +176,7 @@ resource "aws_elasticache_replication_group" "redis" {
   transit_encryption_enabled = true
 
   snapshot_retention_limit = 3
-  apply_immediately         = false
+  apply_immediately        = false
 }
 
 resource "aws_secretsmanager_secret" "database" {
