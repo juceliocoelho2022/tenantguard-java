@@ -23,9 +23,6 @@ jobs:
   validate:
     name: Terraform Format and Validate
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/terraform
 
     steps:
       - name: Checkout
@@ -38,10 +35,29 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform Format Check
+        working-directory: infra/terraform
         run: terraform fmt -check -diff -recursive
 
       - name: Terraform Init
+        working-directory: infra/terraform
         run: terraform init -backend=false -input=false
 
       - name: Terraform Validate
+        working-directory: infra/terraform
+        run: terraform validate -no-color
+
+      - name: Generate provider lock data
+        working-directory: infra/terraform
+        run: |
+          terraform providers lock \
+            -platform=linux_amd64 \
+            -platform=windows_amd64
+          cat .terraform.lock.hcl
+
+      - name: Bootstrap Init
+        working-directory: infra/terraform/bootstrap-state
+        run: terraform init -backend=false -input=false
+
+      - name: Bootstrap Validate
+        working-directory: infra/terraform/bootstrap-state
         run: terraform validate -no-color
