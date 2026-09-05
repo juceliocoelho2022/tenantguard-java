@@ -1,5 +1,30 @@
 data "aws_caller_identity" "current" {}
 
+data "aws_iam_policy_document" "terraform_state" {
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.terraform_state.arn,
+      "${aws_s3_bucket.terraform_state.arn}/*"
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
 locals {
   bucket_name = "${var.project_name}-${var.environment}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-tfstate"
 }
@@ -53,4 +78,11 @@ resource "aws_s3_bucket_ownership_controls" "terraform_state" {
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
+}
+
+resource "aws_s3_bucket_policy" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+  policy = data.aws_iam_policy_document.terraform_state.json
+
+  depends_on = [aws_s3_bucket_public_access_block.terraform_state]
 }
