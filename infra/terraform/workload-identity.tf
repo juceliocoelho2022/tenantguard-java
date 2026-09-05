@@ -32,6 +32,7 @@ resource "aws_iam_policy" "tenantguard_secrets" {
       ]
       Resource = [
         aws_secretsmanager_secret.database.arn,
+        aws_db_instance.postgres.master_user_secret[0].secret_arn,
         aws_secretsmanager_secret.redis.arn
       ]
     }]

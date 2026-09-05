@@ -80,12 +80,6 @@ module "eks" {
   }
 }
 
-resource "random_password" "db" {
-  length           = 32
-  special          = true
-  override_special = "!#$%&*+-=?@^_"
-}
-
 resource "aws_security_group" "rds" {
   name        = "${local.name}-rds"
   description = "PostgreSQL access from TenantGuard EKS nodes"
@@ -119,10 +113,10 @@ resource "aws_db_instance" "postgres" {
   storage_type          = "gp3"
   storage_encrypted     = true
 
-  db_name  = var.db_name
-  username = var.db_username
-  password = random_password.db.result
-  port     = 5432
+  db_name                     = var.db_name
+  username                    = var.db_username
+  manage_master_user_password = true
+  port                        = 5432
 
   db_subnet_group_name   = module.vpc.database_subnet_group_name
   vpc_security_group_ids = [aws_security_group.rds.id]
@@ -189,8 +183,6 @@ resource "aws_secretsmanager_secret_version" "database" {
     host     = aws_db_instance.postgres.address
     port     = aws_db_instance.postgres.port
     database = var.db_name
-    username = var.db_username
-    password = random_password.db.result
     url      = "jdbc:postgresql://${aws_db_instance.postgres.address}:${aws_db_instance.postgres.port}/${var.db_name}"
   })
 }
