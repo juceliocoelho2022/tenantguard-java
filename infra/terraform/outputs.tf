@@ -34,6 +34,11 @@ output "redis_secret_arn" {
   value       = aws_secretsmanager_secret.redis.arn
 }
 
+output "jwt_secret_arn" {
+  description = "Secrets Manager ARN for the runtime JWT signing secret."
+  value       = aws_secretsmanager_secret.jwt.arn
+}
+
 output "ecr_repository_url" {
   description = "ECR repository URL used by the delivery pipeline."
   value       = aws_ecr_repository.tenantguard.repository_url
@@ -52,4 +57,9 @@ output "load_balancer_controller_role_arn" {
 output "github_actions_cluster_bootstrap_role_arn" {
   description = "Protected GitHub Actions role used only for cluster-level controller bootstrap."
   value       = aws_iam_role.github_actions_cluster_bootstrap.arn
+}
+
+output "github_actions_runtime_secrets_bootstrap_role_arn" {
+  description = "Protected GitHub Actions role used only to initialize the JWT signing secret."
+  value       = aws_iam_role.github_actions_runtime_secrets_bootstrap.arn
 }

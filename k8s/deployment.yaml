@@ -36,8 +36,6 @@ spec:
           envFrom:
             - configMapRef:
                 name: tenantguard-config
-            - secretRef:
-                name: tenantguard-secrets
           volumeMounts:
             - name: tenantguard-aws-secrets
               mountPath: /mnt/secrets-store

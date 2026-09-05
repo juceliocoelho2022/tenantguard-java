@@ -199,3 +199,12 @@ resource "aws_secretsmanager_secret_version" "redis" {
     tls  = true
   })
 }
+
+# Only the secret container is managed by Terraform. Its JWT value is seeded
+# out-of-band so the signing key is never persisted in Terraform state.
+resource "aws_secretsmanager_secret" "jwt" {
+  name        = "${local.name}/jwt"
+  description = "TenantGuard JWT signing secret; value is bootstrapped outside Terraform state"
+
+  tags = local.common_tags
+}
