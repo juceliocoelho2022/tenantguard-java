@@ -53,6 +53,25 @@ class AuthRateLimitServiceTest {
         assertFalse(service.checkRefresh("127.0.0.1").allowed());
     }
 
+    @Test
+    void shouldAllowRequestWhenBackendFailsAndFailOpenIsEnabled() {
+        RateLimitStore failingStore = (key, window) -> { throw new IllegalStateException("redis unavailable"); };
+        AuthRateLimitService service = new AuthRateLimitService(2, 4, 60, failingStore, true);
+
+        var decision = service.checkLogin("127.0.0.1");
+
+        assertTrue(decision.allowed());
+        assertEquals(2, decision.remaining());
+    }
+
+    @Test
+    void shouldPropagateBackendFailureWhenFailOpenIsDisabled() {
+        RateLimitStore failingStore = (key, window) -> { throw new IllegalStateException("redis unavailable"); };
+        AuthRateLimitService service = new AuthRateLimitService(2, 4, 60, failingStore, false);
+
+        assertThrows(IllegalStateException.class, () -> service.checkLogin("127.0.0.1"));
+    }
+
     private AuthRateLimitService service(int loginLimit, int refreshLimit, long windowSeconds) {
         return new AuthRateLimitService(
                 loginLimit,
