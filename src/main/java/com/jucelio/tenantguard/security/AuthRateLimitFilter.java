@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import com.jucelio.tenantguard.observability.AuthenticationMetrics;
 import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -20,10 +21,15 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
 
     private final AuthRateLimitService rateLimitService;
     private final SecurityEventService securityEventService;
+    private final AuthenticationMetrics authenticationMetrics;
 
-    public AuthRateLimitFilter(AuthRateLimitService rateLimitService, SecurityEventService securityEventService) {
+    public AuthRateLimitFilter(
+            AuthRateLimitService rateLimitService,
+            SecurityEventService securityEventService,
+            AuthenticationMetrics authenticationMetrics) {
         this.rateLimitService = rateLimitService;
         this.securityEventService = securityEventService;
+        this.authenticationMetrics = authenticationMetrics;
     }
 
     @Override
@@ -47,6 +53,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
+        authenticationMetrics.recordRateLimitBlocked(endpointTag(request));
         securityEventService.record(
                 request,
                 "RATE_LIMIT_EXCEEDED",
@@ -81,5 +88,9 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
         }
 
         return null;
+    }
+
+    private String endpointTag(HttpServletRequest request) {
+        return LOGIN_PATH.equals(request.getRequestURI()) ? "login" : "refresh";
     }
 }
