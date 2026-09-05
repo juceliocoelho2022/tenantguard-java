@@ -60,7 +60,8 @@ services:
     image: prom/prometheus:v3.5.0
     container_name: tenantguard-prometheus
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     command:
       - --config.file=/etc/prometheus/prometheus.yml
     volumes:
