@@ -14,13 +14,18 @@ output "rds_endpoint" {
   value       = aws_db_instance.postgres.address
 }
 
+output "rds_master_secret_arn" {
+  description = "RDS-managed Secrets Manager ARN containing the master username and password."
+  value       = aws_db_instance.postgres.master_user_secret[0].secret_arn
+}
+
 output "redis_primary_endpoint" {
   description = "ElastiCache primary endpoint."
   value       = aws_elasticache_replication_group.redis.primary_endpoint_address
 }
 
 output "database_secret_arn" {
-  description = "Secrets Manager ARN containing database connection metadata."
+  description = "Secrets Manager ARN containing non-credential database connection metadata."
   value       = aws_secretsmanager_secret.database.arn
 }
 
