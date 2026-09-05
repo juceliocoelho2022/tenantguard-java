@@ -1,8 +1,10 @@
 package com.jucelio.tenantguard.config;
 
+import com.jucelio.tenantguard.security.AuthRateLimitFilter;
 import com.jucelio.tenantguard.security.JwtAuthenticationFilter;
 import com.jucelio.tenantguard.security.RestAccessDeniedHandler;
 import com.jucelio.tenantguard.security.RestAuthenticationEntryPoint;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -16,6 +18,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
+            AuthRateLimitFilter authRateLimitFilter,
             JwtAuthenticationFilter jwtFilter,
             RestAuthenticationEntryPoint authenticationEntryPoint,
             RestAccessDeniedHandler accessDeniedHandler) throws Exception {
@@ -29,12 +32,17 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/api/auth/login",
+                                "/api/auth/refresh",
+                                "/api/auth/logout",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/actuator/health",
+                                "/actuator/health/liveness",
+                                "/actuator/health/readiness",
                                 "/actuator/info",
                                 "/actuator/prometheus"
                         ).permitAll()
@@ -43,8 +51,12 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(
-                        jwtFilter,
+                        authRateLimitFilter,
                         UsernamePasswordAuthenticationFilter.class
+                )
+                .addFilterAfter(
+                        jwtFilter,
+                        AuthRateLimitFilter.class
                 )
                 .build();
     }

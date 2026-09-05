@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import com.jucelio.tenantguard.tenant.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -27,9 +28,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
 
     private final JwtTenantResolver tenantResolver;
+    private final SecurityEventService securityEventService;
 
-    public JwtAuthenticationFilter(JwtTenantResolver tenantResolver) {
+    public JwtAuthenticationFilter(JwtTenantResolver tenantResolver, SecurityEventService securityEventService) {
         this.tenantResolver = tenantResolver;
+        this.securityEventService = securityEventService;
     }
 
     @Override
@@ -50,7 +53,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
 
             if (authorization != null && authorization.startsWith("Bearer ")) {
-                if (!authenticate(authorization.substring(7), response)) {
+                if (!authenticate(request, authorization.substring(7), response)) {
                     return;
                 }
             }
@@ -67,7 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean authenticate(String token, HttpServletResponse response) throws IOException {
+    private boolean authenticate(HttpServletRequest request, String token, HttpServletResponse response) throws IOException {
         try {
             AuthenticatedUser user = tenantResolver.resolve(token);
 
@@ -86,6 +89,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         } catch (Exception ex) {
             SecurityContextHolder.clearContext();
+            securityEventService.record(request, "INVALID_TOKEN", 401, null, "JWT token is invalid, expired, or not an access token");
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
             response.setContentType("application/json");

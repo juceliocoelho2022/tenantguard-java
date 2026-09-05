@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tenantguard_test
+    username: postgres
+    password: postgres
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+app:
+  jwt:
+    secret: tenantguard-test-secret-key-only-for-automated-tests-2026
+    expiration-seconds: 3600
+    refresh-expiration-seconds: 604800
+  security:
+    rate-limit:
+      window-seconds: 60
+      login:
+        max-attempts: 5
+      refresh:
+        max-attempts: 10
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+  tracing:
+    sampling:
+      probability: 1.0
