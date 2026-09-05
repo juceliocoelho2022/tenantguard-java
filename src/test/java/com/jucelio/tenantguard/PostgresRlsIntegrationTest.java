@@ -11,6 +11,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.OffsetDateTime;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -53,6 +55,66 @@ class PostgresRlsIntegrationTest {
                         "Tentativa indevida",
                         "TENANT_B"
                 )
+        );
+    }
+
+    @Test
+    @Transactional
+    void refreshSessions_shouldBeIsolatedByTenant() {
+        jdbcTemplate.update(
+                "INSERT INTO refresh_token_sessions (jti, username, tenant_id, role, expires_at) VALUES (?, ?, ?, ?, ?)",
+                "jti-a", "alice", "TENANT_A", "USER", OffsetDateTime.now().plusHours(1)
+        );
+        jdbcTemplate.update(
+                "INSERT INTO refresh_token_sessions (jti, username, tenant_id, role, expires_at) VALUES (?, ?, ?, ?, ?)",
+                "jti-b", "bob", "TENANT_B", "USER", OffsetDateTime.now().plusHours(1)
+        );
+
+        applyTenant("TENANT_A");
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM refresh_token_sessions",
+                Integer.class
+        );
+
+        assertEquals(1, count);
+    }
+
+    @Test
+    @Transactional
+    void securityEvents_shouldBeIsolatedByTenant() {
+        jdbcTemplate.update(
+                "INSERT INTO security_events (event_type, http_status, tenant_id, method, path) VALUES (?, ?, ?, ?, ?)",
+                "AUTH_FAILURE", 401, "TENANT_A", "POST", "/api/auth/login"
+        );
+        jdbcTemplate.update(
+                "INSERT INTO security_events (event_type, http_status, tenant_id, method, path) VALUES (?, ?, ?, ?, ?)",
+                "AUTH_FAILURE", 401, "TENANT_B", "POST", "/api/auth/login"
+        );
+
+        applyTenant("TENANT_A");
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM security_events",
+                Integer.class
+        );
+
+        assertEquals(1, count);
+    }
+
+    @Test
+    @Transactional
+    void auditWriter_shouldInsertPreAuthenticationEventWithoutReadPermission() {
+        jdbcTemplate.execute("SET LOCAL ROLE tenantguard_audit");
+
+        int inserted = jdbcTemplate.update(
+                "INSERT INTO security_events (event_type, http_status, tenant_id, method, path) VALUES (?, ?, ?, ?, ?)",
+                "AUTH_FAILURE", 401, null, "POST", "/api/auth/login"
+        );
+
+        assertEquals(1, inserted);
+        assertThrows(DataAccessException.class, () ->
+                jdbcTemplate.queryForObject("SELECT COUNT(*) FROM security_events", Integer.class)
         );
     }
 
