@@ -23,7 +23,8 @@ class AuthRateLimitFilterTest {
                 Instant.parse("2026-09-04T12:00:00Z"),
                 ZoneOffset.UTC
         );
-        AuthRateLimitService service = new AuthRateLimitService(1, 10, 60, clock);
+        RateLimitStore store = new InMemoryRateLimitStore(clock);
+        AuthRateLimitService service = new AuthRateLimitService(1, 10, 60, store);
         SecurityEventService securityEventService = mock(SecurityEventService.class);
         AuthenticationMetrics authenticationMetrics = mock(AuthenticationMetrics.class);
         AuthRateLimitFilter filter = new AuthRateLimitFilter(service, securityEventService, authenticationMetrics);

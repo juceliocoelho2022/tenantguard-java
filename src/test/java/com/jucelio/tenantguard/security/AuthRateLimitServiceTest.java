@@ -17,7 +17,7 @@ class AuthRateLimitServiceTest {
 
     @Test
     void shouldAllowRequestsUntilLoginLimitIsReached() {
-        AuthRateLimitService service = new AuthRateLimitService(2, 4, 60, clock);
+        AuthRateLimitService service = service(2, 4, 60);
 
         var first = service.checkLogin("127.0.0.1");
         var second = service.checkLogin("127.0.0.1");
@@ -30,7 +30,7 @@ class AuthRateLimitServiceTest {
 
     @Test
     void shouldRejectLoginWhenLimitIsExceeded() {
-        AuthRateLimitService service = new AuthRateLimitService(2, 4, 60, clock);
+        AuthRateLimitService service = service(2, 4, 60);
 
         service.checkLogin("127.0.0.1");
         service.checkLogin("127.0.0.1");
@@ -44,12 +44,21 @@ class AuthRateLimitServiceTest {
 
     @Test
     void loginAndRefreshMustUseIndependentBuckets() {
-        AuthRateLimitService service = new AuthRateLimitService(1, 1, 60, clock);
+        AuthRateLimitService service = service(1, 1, 60);
 
         assertTrue(service.checkLogin("127.0.0.1").allowed());
         assertFalse(service.checkLogin("127.0.0.1").allowed());
 
         assertTrue(service.checkRefresh("127.0.0.1").allowed());
         assertFalse(service.checkRefresh("127.0.0.1").allowed());
+    }
+
+    private AuthRateLimitService service(int loginLimit, int refreshLimit, long windowSeconds) {
+        return new AuthRateLimitService(
+                loginLimit,
+                refreshLimit,
+                windowSeconds,
+                new InMemoryRateLimitStore(clock)
+        );
     }
 }
