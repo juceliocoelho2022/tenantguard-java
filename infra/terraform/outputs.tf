@@ -28,3 +28,13 @@ output "redis_secret_arn" {
   description = "Secrets Manager ARN containing Redis connection metadata."
   value       = aws_secretsmanager_secret.redis.arn
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL used by the delivery pipeline."
+  value       = aws_ecr_repository.tenantguard.repository_url
+}
+
+output "github_actions_delivery_role_arn" {
+  description = "IAM role assumed by GitHub Actions through OIDC for image delivery."
+  value       = aws_iam_role.github_actions_delivery.arn
+}
