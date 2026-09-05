@@ -11,6 +11,8 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
   EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+  ALB_SSL_POLICY: ${{ vars.ALB_SSL_POLICY || 'ELBSecurityPolicy-TLS13-1-2-2021-06' }}
 
 jobs:
   publish-and-deploy:
@@ -62,6 +64,16 @@ jobs:
         if: ${{ vars.ENABLE_ALB_INGRESS == 'true' }}
         run: kubectl apply -f k8s/aws/ingress.yaml
 
+      - name: Configure ALB HTTPS and HTTP redirect
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' && vars.ACM_CERTIFICATE_ARN != '' }}
+        run: |
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/certificate-arn="$ACM_CERTIFICATE_ARN" \
+            alb.ingress.kubernetes.io/listen-ports='[{"HTTP":80},{"HTTPS":443}]' \
+            alb.ingress.kubernetes.io/ssl-redirect='443' \
+            alb.ingress.kubernetes.io/ssl-policy="$ALB_SSL_POLICY" \
+            --overwrite
+
       - name: Deploy immutable image
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
@@ -69,6 +81,10 @@ jobs:
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/tenantguard-app --timeout=5m
+
+      - name: Show ingress status
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' }}
+        run: kubectl get ingress tenantguard-app -o wide
 
       - name: Publish deployment summary
         env:
@@ -79,4 +95,5 @@ jobs:
           echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: \`tenantguard-app\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- ALB ingress enabled: \`${{ vars.ENABLE_ALB_INGRESS }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- HTTPS configured: \`${{ vars.ACM_CERTIFICATE_ARN != '' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Rollout: successful" >> "$GITHUB_STEP_SUMMARY"
