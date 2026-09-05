@@ -67,6 +67,7 @@ app:
   security:
     rate-limit:
       backend: ${AUTH_RATE_LIMIT_BACKEND:memory}
+      fail-open: ${AUTH_RATE_LIMIT_FAIL_OPEN:true}
       window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:60}
       login:
         max-attempts: ${AUTH_LOGIN_MAX_ATTEMPTS:5}

@@ -26,18 +26,47 @@ class CorrelationIdFilterTest {
 
     @Test
     void shouldGenerateCorrelationIdWhenHeaderIsMissing() throws Exception {
+        assertGeneratedCorrelationId(null);
+    }
+
+    @Test
+    void shouldGenerateCorrelationIdWhenHeaderContainsUnsafeCharacters() throws Exception {
+        assertGeneratedCorrelationId("corr id\nforged");
+    }
+
+    @Test
+    void shouldGenerateCorrelationIdWhenHeaderIsTooLong() throws Exception {
+        assertGeneratedCorrelationId("a".repeat(CorrelationIdFilter.MAX_CORRELATION_ID_LENGTH + 1));
+    }
+
+    @Test
+    void shouldAcceptSafeCorrelationIdCharacters() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        request.addHeader(CorrelationIdFilter.HEADER_NAME, "trace_01:api.v2-ABC");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (req, res) ->
+                assertEquals("trace_01:api.v2-ABC", MDC.get(CorrelationIdFilter.MDC_KEY)));
+
+        assertEquals("trace_01:api.v2-ABC", response.getHeader(CorrelationIdFilter.HEADER_NAME));
+    }
+
+    private void assertGeneratedCorrelationId(String incoming) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        if (incoming != null) {
+            request.addHeader(CorrelationIdFilter.HEADER_NAME, incoming);
+        }
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, (req, res) -> {
             String generated = MDC.get(CorrelationIdFilter.MDC_KEY);
             assertNotNull(generated);
-            assertFalse(generated.isBlank());
+            assertDoesNotThrow(() -> java.util.UUID.fromString(generated));
         });
 
         String responseHeader = response.getHeader(CorrelationIdFilter.HEADER_NAME);
         assertNotNull(responseHeader);
-        assertFalse(responseHeader.isBlank());
+        assertDoesNotThrow(() -> java.util.UUID.fromString(responseHeader));
         assertNull(MDC.get(CorrelationIdFilter.MDC_KEY));
     }
 }
