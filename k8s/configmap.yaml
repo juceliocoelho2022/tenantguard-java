@@ -4,8 +4,7 @@ metadata:
   name: tenantguard-config
 data:
   SPRING_PROFILES_ACTIVE: prod
-  SPRING_DATASOURCE_URL: jdbc:postgresql://tenantguard-postgres:5432/tenantguard
-  SPRING_DATASOURCE_USERNAME: tenantguard_app
+  SPRING_DATASOURCE_URL: jdbc:postgresql://CHANGE_ME:5432/tenantguard
   JWT_ACCESS_EXPIRATION_SECONDS: "3600"
   JWT_REFRESH_EXPIRATION_SECONDS: "604800"
   AUTH_RATE_LIMIT_WINDOW_SECONDS: "60"
