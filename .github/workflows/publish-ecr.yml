@@ -58,6 +58,10 @@ jobs:
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/hpa.yaml
 
+      - name: Apply ALB ingress
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' }}
+        run: kubectl apply -f k8s/aws/ingress.yaml
+
       - name: Deploy immutable image
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
@@ -74,4 +78,5 @@ jobs:
           echo "- Image: \`$IMAGE_URI\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: \`tenantguard-app\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ALB ingress enabled: \`${{ vars.ENABLE_ALB_INGRESS }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Rollout: successful" >> "$GITHUB_STEP_SUMMARY"
