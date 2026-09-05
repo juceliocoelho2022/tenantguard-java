@@ -6,3 +6,14 @@ target/
 logs/
 *.log
 .DS_Store
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+terraform.tfvars
+*.auto.tfvars
+.terraform.lock.hcl
