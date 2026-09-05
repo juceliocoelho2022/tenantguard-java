@@ -11,6 +11,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
   EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  RDS_MASTER_SECRET_ARN: ${{ vars.RDS_MASTER_SECRET_ARN }}
   ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
   ALB_SSL_POLICY: ${{ vars.ALB_SSL_POLICY || 'ELBSecurityPolicy-TLS13-1-2-2021-06' }}
 
@@ -23,6 +24,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate required deployment variables
+        run: |
+          test -n "$AWS_REGION" || { echo "AWS_REGION is required"; exit 1; }
+          test -n "$ECR_REPOSITORY" || { echo "ECR_REPOSITORY is required"; exit 1; }
+          test -n "$EKS_CLUSTER_NAME" || { echo "EKS_CLUSTER_NAME is required"; exit 1; }
+          test -n "$RDS_MASTER_SECRET_ARN" || { echo "RDS_MASTER_SECRET_ARN is required"; exit 1; }
 
       - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -51,10 +59,13 @@ jobs:
       - name: Configure kubectl for EKS
         run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
+      - name: Render Secrets Store CSI manifest
+        run: envsubst < k8s/aws/secret-provider-class.template.yaml > /tmp/tenantguard-secret-provider-class.yaml
+
       - name: Apply workload manifests
         run: |
           kubectl apply -f k8s/aws/service-account.yaml
-          kubectl apply -f k8s/aws/secret-provider-class.yaml
+          kubectl apply -f /tmp/tenantguard-secret-provider-class.yaml
           kubectl apply -f k8s/configmap.yaml
           kubectl apply -f k8s/service.yaml
           kubectl apply -f k8s/deployment.yaml
@@ -94,6 +105,7 @@ jobs:
           echo "- Image: \`$IMAGE_URI\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment: \`tenantguard-app\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Database credentials: RDS-managed Secrets Manager secret" >> "$GITHUB_STEP_SUMMARY"
           echo "- ALB ingress enabled: \`${{ vars.ENABLE_ALB_INGRESS }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- HTTPS configured: \`${{ vars.ACM_CERTIFICATE_ARN != '' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Rollout: successful" >> "$GITHUB_STEP_SUMMARY"
