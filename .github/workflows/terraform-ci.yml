@@ -40,24 +40,32 @@ jobs:
 
       - name: Terraform Init
         working-directory: infra/terraform
-        run: terraform init -backend=false -input=false
+        run: terraform init -backend=false -input=false -lockfile=readonly
 
       - name: Terraform Validate
         working-directory: infra/terraform
         run: terraform validate -no-color
 
-      - name: Generate provider lock data
+      - name: Verify provider lock file
         working-directory: infra/terraform
         run: |
           terraform providers lock \
             -platform=linux_amd64 \
             -platform=windows_amd64
-          cat .terraform.lock.hcl
+          git diff --exit-code -- .terraform.lock.hcl
 
       - name: Bootstrap Init
         working-directory: infra/terraform/bootstrap-state
-        run: terraform init -backend=false -input=false
+        run: terraform init -backend=false -input=false -lockfile=readonly
 
       - name: Bootstrap Validate
         working-directory: infra/terraform/bootstrap-state
         run: terraform validate -no-color
+
+      - name: Verify bootstrap provider lock file
+        working-directory: infra/terraform/bootstrap-state
+        run: |
+          terraform providers lock \
+            -platform=linux_amd64 \
+            -platform=windows_amd64
+          git diff --exit-code -- .terraform.lock.hcl
