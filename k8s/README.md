@@ -1,6 +1,6 @@
 # TenantGuard on Kubernetes
 
-This directory contains a production-oriented starting point for running TenantGuard on Kubernetes with health probes, resource controls and horizontal autoscaling.
+This directory contains a production-oriented starting point for running TenantGuard on Kubernetes with health probes, resource controls, horizontal autoscaling and AWS Secrets Manager integration.
 
 ## Health probes
 
@@ -34,7 +34,7 @@ Scaling targets:
 - Scale-up may double capacity or add up to 2 pods per minute, whichever is larger
 - Scale-down uses a 5-minute stabilization window and reduces capacity gradually
 
-A Kubernetes metrics provider is required. On standard clusters this is typically Metrics Server. Managed Kubernetes platforms may already provide or integrate this capability.
+A Kubernetes metrics provider is required. On EKS, the Terraform stack enables Metrics Server.
 
 Validate metrics before relying on HPA:
 
@@ -44,31 +44,52 @@ kubectl get hpa tenantguard-app
 kubectl describe hpa tenantguard-app
 ```
 
-## Required environment-specific values
+## AWS Secrets Manager integration
 
-Before deploying, replace `CHANGE_ME` in `configmap.yaml` with the PostgreSQL host used by the target environment and replace the image in `deployment.yaml` with the image published by your registry pipeline.
+Production database and Redis connection data are stored in AWS Secrets Manager by Terraform.
 
-Create the required secret outside Git:
+The application pod uses:
+
+- EKS Pod Identity via the `tenantguard-app` ServiceAccount
+- Secrets Store CSI Driver with the AWS provider
+- `SecretProviderClass` in `k8s/aws/secret-provider-class.yaml`
+- a read-only CSI volume mounted at `/mnt/secrets-store`
+- Spring Boot `configtree:` loading via `SPRING_CONFIG_IMPORT`
+
+The mounted files are named as Spring properties:
+
+- `spring.datasource.url`
+- `spring.datasource.username`
+- `spring.datasource.password`
+- `spring.data.redis.host`
+- `spring.data.redis.port`
+- `spring.data.redis.ssl.enabled`
+
+This avoids copying RDS or Redis credentials into a Kubernetes Secret.
+
+`tenantguard-secrets` is still required for application secrets that are not currently provisioned by Terraform, such as `JWT_SECRET`:
 
 ```bash
 kubectl create secret generic tenantguard-secrets \
-  --from-literal=SPRING_DATASOURCE_USERNAME='<database-user>' \
-  --from-literal=SPRING_DATASOURCE_PASSWORD='<database-password>' \
   --from-literal=JWT_SECRET='<long-random-jwt-secret>'
 ```
 
-Do not commit real database credentials or JWT secrets to this repository.
+Do not commit real credentials or JWT secrets to this repository.
 
-For multi-replica production deployments, configure the authentication rate limiter to use the Redis backend and point the application to a production-grade Redis service.
+## Apply on EKS
 
-## Apply
+Apply the AWS-specific identity and secret mapping before the Deployment:
 
 ```bash
+kubectl apply -f k8s/aws/service-account.yaml
+kubectl apply -f k8s/aws/secret-provider-class.yaml
 kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
+
+Replace the image in `deployment.yaml` with the image published by the registry pipeline before production rollout.
 
 ## Validate
 
@@ -77,6 +98,9 @@ kubectl get pods
 kubectl describe pod -l app=tenantguard-app
 kubectl get service tenantguard-service
 kubectl get hpa tenantguard-app
+kubectl exec deploy/tenantguard-app -- ls -la /mnt/secrets-store
 ```
 
-For production, use managed PostgreSQL and Redis services where appropriate, a secrets manager/external-secrets integration, a real container registry, TLS ingress, metrics infrastructure, alerting and deployment automation.
+Do not print mounted secret file contents during validation.
+
+For production, also use a real container registry, TLS ingress, metrics infrastructure, alerting and deployment automation.
