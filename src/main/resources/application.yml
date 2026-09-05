@@ -3,23 +3,20 @@ spring:
     name: tenantguard-java
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tenantguard}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:tenantguard}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
 
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
-    properties:
-      hibernate:
-        format_sql: true
 
   flyway:
     enabled: true
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 management:
   endpoints:
@@ -32,9 +29,6 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-  tracing:
-    sampling:
-      probability: 1.0
 
 info:
   app:
@@ -44,7 +38,7 @@ info:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:tenantguard-demo-secret-key-please-change-2026-very-long}
+    secret: ${JWT_SECRET}
     expiration-seconds: ${JWT_ACCESS_EXPIRATION_SECONDS:3600}
     refresh-expiration-seconds: ${JWT_REFRESH_EXPIRATION_SECONDS:604800}
   security:
