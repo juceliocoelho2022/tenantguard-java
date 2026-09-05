@@ -1,0 +1,11 @@
+aws_region              = "us-east-1"
+environment             = "prod"
+project_name            = "tenantguard"
+vpc_cidr                = "10.40.0.0/16"
+eks_cluster_version     = "1.34"
+eks_node_instance_types = ["t3.medium"]
+rds_instance_class      = "db.t4g.micro"
+rds_engine_version      = "17"
+redis_node_type         = "cache.t4g.micro"
+db_name                 = "tenantguard"
+db_username             = "tenantguard_admin"
