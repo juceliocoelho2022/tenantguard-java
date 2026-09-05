@@ -1,5 +1,6 @@
 package com.jucelio.tenantguard.security;
 
+import com.jucelio.tenantguard.observability.AuthenticationMetrics;
 import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -24,7 +25,8 @@ class AuthRateLimitFilterTest {
         );
         AuthRateLimitService service = new AuthRateLimitService(1, 10, 60, clock);
         SecurityEventService securityEventService = mock(SecurityEventService.class);
-        AuthRateLimitFilter filter = new AuthRateLimitFilter(service, securityEventService);
+        AuthenticationMetrics authenticationMetrics = mock(AuthenticationMetrics.class);
+        AuthRateLimitFilter filter = new AuthRateLimitFilter(service, securityEventService, authenticationMetrics);
         AtomicInteger chainCalls = new AtomicInteger();
 
         MockHttpServletRequest firstRequest = loginRequest();
@@ -44,6 +46,7 @@ class AuthRateLimitFilterTest {
         assertEquals("0", secondResponse.getHeader("X-RateLimit-Remaining"));
         assertTrue(secondResponse.getContentAsString().contains("rate_limit_exceeded"));
 
+        verify(authenticationMetrics).recordRateLimitBlocked("login");
         verify(securityEventService).record(
                 eq(secondRequest),
                 eq("RATE_LIMIT_EXCEEDED"),
