@@ -15,10 +15,21 @@ spec:
         app: tenantguard-app
     spec:
       serviceAccountName: tenantguard-app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tenantguard-app
           image: tenantguard-java:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8080

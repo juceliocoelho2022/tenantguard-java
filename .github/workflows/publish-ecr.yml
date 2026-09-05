@@ -1,0 +1,126 @@
+name: Publish and Deploy TenantGuard
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  RDS_MASTER_SECRET_ARN: ${{ vars.RDS_MASTER_SECRET_ARN }}
+  ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+  ALB_SSL_POLICY: ${{ vars.ALB_SSL_POLICY || 'ELBSecurityPolicy-TLS13-1-2-2021-06' }}
+
+jobs:
+  publish-and-deploy:
+    name: Build, Push and Roll Out to Amazon EKS
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required deployment variables
+        run: |
+          test -n "$AWS_REGION" || { echo "AWS_REGION is required"; exit 1; }
+          test -n "$ECR_REPOSITORY" || { echo "ECR_REPOSITORY is required"; exit 1; }
+          test -n "$EKS_CLUSTER_NAME" || { echo "EKS_CLUSTER_NAME is required"; exit 1; }
+          test -n "$RDS_MASTER_SECRET_ARN" || { echo "RDS_MASTER_SECRET_ARN is required"; exit 1; }
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: true
+          sbom: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure kubectl for EKS
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Render Secrets Store CSI manifest
+        run: envsubst < k8s/aws/secret-provider-class.template.yaml > /tmp/tenantguard-secret-provider-class.yaml
+
+      - name: Apply workload manifests
+        run: |
+          kubectl apply -f k8s/aws/service-account.yaml
+          kubectl apply -f /tmp/tenantguard-secret-provider-class.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Apply ALB ingress
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' }}
+        run: kubectl apply -f k8s/aws/ingress.yaml
+
+      - name: Configure ALB HTTPS and HTTP redirect
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' && vars.ACM_CERTIFICATE_ARN != '' }}
+        run: |
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/certificate-arn="$ACM_CERTIFICATE_ARN" \
+            alb.ingress.kubernetes.io/listen-ports='[{"HTTP":80},{"HTTPS":443}]' \
+            alb.ingress.kubernetes.io/ssl-redirect='443' \
+            alb.ingress.kubernetes.io/ssl-policy="$ALB_SSL_POLICY" \
+            --overwrite
+
+      - name: Revert ALB to HTTP when certificate is absent
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' && vars.ACM_CERTIFICATE_ARN == '' }}
+        run: |
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/listen-ports='[{"HTTP":80}]' \
+            --overwrite
+          kubectl annotate ingress tenantguard-app \
+            alb.ingress.kubernetes.io/certificate-arn- \
+            alb.ingress.kubernetes.io/ssl-redirect- \
+            alb.ingress.kubernetes.io/ssl-policy- || true
+
+      - name: Remove ALB ingress when disabled
+        if: ${{ vars.ENABLE_ALB_INGRESS != 'true' }}
+        run: kubectl delete ingress tenantguard-app --ignore-not-found=true
+
+      - name: Deploy immutable image
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: kubectl set image deployment/tenantguard-app tenantguard-app="$IMAGE_URI"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/tenantguard-app --timeout=5m
+
+      - name: Show ingress status
+        if: ${{ vars.ENABLE_ALB_INGRESS == 'true' }}
+        run: kubectl get ingress tenantguard-app -o wide
+
+      - name: Publish deployment summary
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          echo "### TenantGuard production delivery" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`$IMAGE_URI\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment: \`tenantguard-app\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Database credentials: RDS-managed Secrets Manager secret" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ALB ingress enabled: \`${{ vars.ENABLE_ALB_INGRESS }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- HTTPS configured: \`${{ vars.ACM_CERTIFICATE_ARN != '' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rollout: successful" >> "$GITHUB_STEP_SUMMARY"

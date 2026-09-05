@@ -16,4 +16,4 @@ crash.log
 crash.*.log
 terraform.tfvars
 *.auto.tfvars
-.terraform.lock.hcl
+backend.hcl

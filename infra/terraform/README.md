@@ -1,68 +1,96 @@
 # TenantGuard — AWS Production Architecture
 
-Sprint 9 introduces a production-oriented AWS foundation managed with Terraform.
+Sprint 9 introduced the production-oriented AWS foundation. Sprint 10 extends it with secure image delivery, controlled EKS rollout and ALB ingress bootstrapping.
 
 ## Architecture
 
 ```text
-Internet
-   |
-   v
-AWS Load Balancer / EKS Ingress
-   |
-   v
+GitHub Actions
+      |
+      | OIDC
+      v
+AWS IAM delivery role
+      |
+      v
+Amazon ECR
+      |
+      v
 Amazon EKS
-  |       \
-  |        \
-  v         v
-Amazon RDS  Amazon ElastiCache
-PostgreSQL  Redis
-  |           |
-  +----- AWS Secrets Manager
+      |
+      +--> AWS Load Balancer Controller
+      |          |
+      |          v
+      |       ALB / HTTPS
+      |
+      +--> TenantGuard Pods
+              |       \
+              v        v
+         Amazon RDS  ElastiCache Redis
               |
               v
-      EKS Pod Identity + ASCP
-              |
-              v
-        TenantGuard Pod
+       AWS Secrets Manager
 ```
 
-## Provisioned resources
+## Production delivery
 
-- VPC across three Availability Zones
-- Public subnets for load balancers
-- Private subnets for EKS worker nodes
-- Dedicated database subnets for RDS
-- Dedicated ElastiCache subnets
-- EKS managed node group with min 2 / max 6 nodes
-- Metrics Server addon for Kubernetes HPA
-- EKS Pod Identity Agent addon
-- AWS Secrets Store CSI provider addon
-- Private PostgreSQL 17 RDS instance with encrypted storage and backups
-- Multi-AZ Redis replication group with TLS and encryption at rest
-- Security groups restricting PostgreSQL and Redis access to EKS nodes
-- AWS Secrets Manager entries for database and Redis connection metadata
-- Least-privilege IAM role that can read only the TenantGuard database and Redis secrets
-- Pod Identity association for the `tenantguard-app` Kubernetes ServiceAccount
+The delivery workflow builds the Docker image, publishes it to ECR using an immutable Git SHA tag, updates the Kubernetes Deployment and waits for a successful rollout.
 
-## Runtime secret flow
+Required GitHub repository variables:
 
-The application does not need static AWS access keys. EKS Pod Identity associates the `tenantguard-app` ServiceAccount with a dedicated IAM role. That role can call only `secretsmanager:GetSecretValue` and `secretsmanager:DescribeSecret` for the two TenantGuard runtime secrets.
+- `AWS_REGION`
+- `AWS_ROLE_ARN` — Terraform output `github_actions_delivery_role_arn`
+- `ECR_REPOSITORY` — default `tenantguard-prod-app`
+- `EKS_CLUSTER_NAME` — Terraform output `eks_cluster_name`
+- `ENABLE_ALB_INGRESS` — set to `true` after the controller is installed
+- `ACM_CERTIFICATE_ARN` — optional; when present, configures HTTPS 443 and HTTP-to-HTTPS redirect
+- `ALB_SSL_POLICY` — optional; defaults to `ELBSecurityPolicy-TLS13-1-2-2021-06`
 
-The AWS Secrets and Configuration Provider (ASCP) for the Secrets Store CSI Driver retrieves the authorized values and mounts them into the pod. The Kubernetes manifest is in `k8s/aws/secret-provider-class.yaml`.
+No long-lived AWS access keys are required. GitHub Actions receives short-lived AWS credentials through OIDC.
 
-No database password or AWS credential is committed to Git.
+## AWS Load Balancer Controller
+
+Terraform provisions:
+
+- an IAM role trusted by `pods.eks.amazonaws.com`
+- the official AWS Load Balancer Controller v2.14.1 IAM policy vendored under `infra/terraform/policies/`
+- an EKS Pod Identity association for `kube-system/aws-load-balancer-controller`
+- a separate GitHub OIDC bootstrap role
+- a cluster-level EKS access entry only for the protected bootstrap workflow
+
+The controller bootstrap is deliberately isolated from the normal application delivery role. The workflow `.github/workflows/bootstrap-alb-controller.yml` runs in the GitHub Environment `production-bootstrap` and installs chart `aws-load-balancer-controller` version `1.14.0` with Helm.
+
+Configure the `production-bootstrap` environment with:
+
+- `AWS_REGION`
+- `EKS_CLUSTER_NAME`
+- `AWS_EKS_BOOTSTRAP_ROLE_ARN` — Terraform output `github_actions_cluster_bootstrap_role_arn`
+
+Use environment protection rules so approval is required before the cluster-admin bootstrap role can be assumed.
+
+## ALB and HTTPS
+
+`k8s/aws/ingress.yaml` defines an internet-facing ALB ingress using IP targets and the application readiness endpoint for health checks.
+
+When `ENABLE_ALB_INGRESS=true`, the delivery workflow applies the Ingress. If `ACM_CERTIFICATE_ARN` is also configured, the workflow adds:
+
+- HTTPS listener on port 443
+- ACM certificate ARN
+- HTTP port 80 listener
+- HTTP-to-HTTPS redirect to 443
+- configured TLS security policy
+
+The certificate ARN is intentionally not committed to the repository.
 
 ## Security principles
 
-- RDS is not publicly accessible.
-- Redis is not publicly accessible.
-- Database and Redis ports accept traffic only from the EKS node security group.
-- Database credentials are generated by Terraform and stored in Secrets Manager.
-- Runtime secret access uses EKS Pod Identity and least-privilege IAM.
-- Redis transport encryption is enabled.
-- RDS storage encryption is enabled.
-- RDS deletion protection is enabled.
+- RDS and Redis are private.
+- Application runtime credentials are read through EKS Pod Identity and Secrets Store CSI.
+- GitHub uses OIDC instead of static AWS keys.
+- ECR uses immutable tags and scan-on-push.
+- Normal delivery access is namespace-scoped.
+- Cluster-admin access is isolated to the protected `production-bootstrap` GitHub Environment.
+- ALB controller permissions are attached only to its Pod Identity role.
+- HTTPS uses an external ACM certificate ARN rather than a committed secret.
 
 ## Usage
 
@@ -75,27 +103,21 @@ terraform validate
 terraform plan
 ```
 
-Do not commit `terraform.tfvars`, Terraform state files, generated plans, or credentials.
-
-After provisioning, apply the workload manifests after replacing environment-specific secret names when `project_name` or `environment` differs from the defaults:
-
-```bash
-kubectl apply -f k8s/aws/service-account.yaml
-kubectl apply -f k8s/aws/secret-provider-class.yaml
-```
+Do not commit `terraform.tfvars`, Terraform state files, generated plans or credentials.
 
 ## Production notes
 
-The current configuration intentionally uses a single NAT Gateway to keep initial portfolio cost under control. A stricter high-availability production environment should use one NAT Gateway per Availability Zone.
+The current configuration intentionally uses a single NAT Gateway and Single-AZ RDS to control portfolio cost. A stricter production environment should use one NAT Gateway per Availability Zone, Multi-AZ RDS and reviewed instance sizing.
 
-RDS starts as Single-AZ to control cost, while backups, encryption and deletion protection are enabled. A production environment with stronger availability requirements should set Multi-AZ and review instance sizing before apply.
+The EKS Kubernetes version is configurable. Confirm the selected version is supported in the target AWS region before apply.
 
-The EKS Kubernetes version is configurable because supported versions change over time. Confirm the target version is available in the selected AWS region before provisioning.
+The bootstrap Helm chart is pinned. Review AWS Load Balancer Controller releases before upgrading because Helm does not automatically apply future security updates.
 
 ## Next increments
 
-1. Wire the mounted Secrets Manager values into the Spring Boot container without committing Kubernetes Secret values.
-2. Add AWS Load Balancer Controller and production Ingress.
-3. Add Terraform remote state with S3 state locking.
-4. Add static Terraform security checks to CI.
-5. Review private-cluster VPC endpoints (including STS) before disabling public EKS API access.
+1. Add Terraform remote state with encrypted S3 state locking.
+2. Commit and maintain `.terraform.lock.hcl`.
+3. Add static Terraform security checks to CI.
+4. Move the JWT signing secret to AWS Secrets Manager.
+5. Harden production PostgreSQL migration/runtime role separation for RLS.
+6. Review private-cluster VPC endpoints before restricting EKS public API access.

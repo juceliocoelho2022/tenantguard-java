@@ -1,0 +1,62 @@
+name: Bootstrap AWS Load Balancer Controller
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+
+jobs:
+  bootstrap:
+    name: Install AWS Load Balancer Controller
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-bootstrap
+
+    steps:
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_EKS_BOOTSTRAP_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl for EKS
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.6
+
+      - name: Add AWS EKS charts repository
+        run: |
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update eks
+
+      - name: Install or upgrade AWS Load Balancer Controller
+        run: |
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            --namespace kube-system \
+            --create-namespace \
+            --set clusterName="$EKS_CLUSTER_NAME" \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --version 1.14.0 \
+            --wait \
+            --timeout 5m
+
+      - name: Verify controller rollout
+        run: kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=5m
+
+      - name: Publish bootstrap summary
+        run: |
+          echo "### AWS Load Balancer Controller" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Namespace: \`kube-system\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Chart: \`aws-load-balancer-controller 1.14.0\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Controller rollout: successful" >> "$GITHUB_STEP_SUMMARY"
