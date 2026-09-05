@@ -1,4 +1,4 @@
-name: Publish TenantGuard Image
+name: Publish and Deploy TenantGuard
 
 on:
   workflow_dispatch:
@@ -10,12 +10,13 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
 jobs:
-  publish:
-    name: Build and Push to Amazon ECR
+  publish-and-deploy:
+    name: Build, Push and Roll Out to Amazon EKS
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -45,5 +46,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Publish image reference
-        run: echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Configure kubectl for EKS
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Apply workload manifests
+        run: |
+          kubectl apply -f k8s/aws/service-account.yaml
+          kubectl apply -f k8s/aws/secret-provider-class.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Deploy immutable image
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: kubectl set image deployment/tenantguard-app tenantguard-app="$IMAGE_URI"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/tenantguard-app --timeout=5m
+
+      - name: Publish deployment summary
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          echo "### TenantGuard production delivery" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`$IMAGE_URI\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`$EKS_CLUSTER_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment: \`tenantguard-app\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rollout: successful" >> "$GITHUB_STEP_SUMMARY"
