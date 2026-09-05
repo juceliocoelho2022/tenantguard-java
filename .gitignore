@@ -3,5 +3,6 @@ target/
 *.iml
 .vscode/
 .env
+logs/
 *.log
 .DS_Store
