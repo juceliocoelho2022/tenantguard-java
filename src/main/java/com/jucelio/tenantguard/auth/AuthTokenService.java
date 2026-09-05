@@ -2,6 +2,7 @@ package com.jucelio.tenantguard.auth;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
 import com.jucelio.tenantguard.security.JwtService;
+import com.jucelio.tenantguard.tenant.RlsTenantGuard;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,22 +15,27 @@ public class AuthTokenService {
 
     private final JwtService jwtService;
     private final RefreshTokenSessionRepository repository;
+    private final RlsTenantGuard rlsTenantGuard;
 
     public AuthTokenService(
             JwtService jwtService,
-            RefreshTokenSessionRepository repository) {
+            RefreshTokenSessionRepository repository,
+            RlsTenantGuard rlsTenantGuard) {
         this.jwtService = jwtService;
         this.repository = repository;
+        this.rlsTenantGuard = rlsTenantGuard;
     }
 
     @Transactional
     public LoginResponse issueTokens(AuthenticatedUser user) {
+        rlsTenantGuard.applyTenant(user.tenantId());
         return issueNewSession(user);
     }
 
     @Transactional
     public LoginResponse rotate(String refreshToken) {
         JwtService.RefreshTokenDetails details = jwtService.parseRefreshTokenDetails(refreshToken);
+        rlsTenantGuard.applyTenant(details.user().tenantId());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         RefreshTokenSession session = repository.findByJtiForUpdate(details.jti())
@@ -46,6 +52,7 @@ public class AuthTokenService {
     @Transactional
     public void revoke(String refreshToken) {
         JwtService.RefreshTokenDetails details = jwtService.parseRefreshTokenDetails(refreshToken);
+        rlsTenantGuard.applyTenant(details.user().tenantId());
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         RefreshTokenSession session = repository.findByJtiForUpdate(details.jti())
