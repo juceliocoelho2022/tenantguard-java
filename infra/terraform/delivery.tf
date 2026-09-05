@@ -1,3 +1,7 @@
+data "tls_certificate" "github_actions" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
 resource "aws_ecr_repository" "tenantguard" {
   name                 = "${local.name}-app"
   image_tag_mutability = "IMMUTABLE"
@@ -36,8 +40,7 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   url = "https://token.actions.githubusercontent.com"
 
   client_id_list = ["sts.amazonaws.com"]
-
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+  thumbprint_list = [data.tls_certificate.github_actions.certificates[0].sha1_fingerprint]
 }
 
 resource "aws_iam_role" "github_actions_delivery" {
@@ -54,9 +57,7 @@ resource "aws_iam_role" "github_actions_delivery" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:juceliocoelho2022/tenantguard-java:*"
+          "token.actions.githubusercontent.com:sub" = "repo:juceliocoelho2022/tenantguard-java:ref:refs/heads/main"
         }
       }
     }]
