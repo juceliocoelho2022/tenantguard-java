@@ -1,11 +1,13 @@
 package com.jucelio.tenantguard.securityintelligence;
 
-import com.jucelio.tenantguard.audit.AuditEventResponse;
 import com.jucelio.tenantguard.audit.AuditService;
+import com.jucelio.tenantguard.security.audit.SecurityEventService;
 import com.jucelio.tenantguard.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 @Service
 public class SecurityIntelligenceService {
@@ -16,13 +18,16 @@ public class SecurityIntelligenceService {
     public static final int EVENT_CAP = 500;
 
     private final AuditService auditService;
+    private final SecurityEventService securityEventService;
     private final SecurityAnalysisProvider analysisProvider;
 
     public SecurityIntelligenceService(
             AuditService auditService,
+            SecurityEventService securityEventService,
             SecurityAnalysisProvider analysisProvider
     ) {
         this.auditService = auditService;
+        this.securityEventService = securityEventService;
         this.analysisProvider = analysisProvider;
     }
 
@@ -34,7 +39,19 @@ public class SecurityIntelligenceService {
         validateLookbackHours(lookbackHours);
 
         String tenantId = TenantContext.getTenant();
-        List<AuditEventResponse> events = auditService.findCurrentTenantEvents(lookbackHours, EVENT_CAP);
+
+        List<SecurityEvidence> events = Stream.concat(
+                        auditService.findCurrentTenantEvents(lookbackHours, EVENT_CAP)
+                                .stream()
+                                .map(SecurityEvidence::fromAudit),
+                        securityEventService.findCurrentTenantEvents(lookbackHours, EVENT_CAP)
+                                .stream()
+                                .map(SecurityEvidence::fromSecurity)
+                )
+                .sorted(Comparator.comparing(SecurityEvidence::createdAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .limit(EVENT_CAP)
+                .toList();
 
         boolean containsAnotherTenant = events.stream()
                 .anyMatch(event -> !tenantId.equals(event.tenantId()));
