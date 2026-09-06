@@ -2,6 +2,8 @@ package com.jucelio.tenantguard;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jucelio.tenantguard.security.audit.SecurityEvent;
+import com.jucelio.tenantguard.security.audit.SecurityEventRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -13,6 +15,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -37,6 +43,9 @@ class AuthRefreshTokenIntegrationTest {
     @Autowired
     ObjectMapper objectMapper;
 
+    @Autowired
+    SecurityEventRepository securityEventRepository;
+
     @Test
     void loginShouldIssueAccessAndRefreshTokens() throws Exception {
         mockMvc.perform(post("/api/auth/login")
@@ -51,7 +60,7 @@ class AuthRefreshTokenIntegrationTest {
     }
 
     @Test
-    void refreshShouldRotateTokenAndRejectReuse() throws Exception {
+    void refreshShouldRotateTokenAndAuditReplayWithTenant() throws Exception {
         String firstRefreshToken = loginAndGetRefreshToken();
 
         String responseBody = mockMvc.perform(post("/api/auth/refresh")
@@ -72,10 +81,19 @@ class AuthRefreshTokenIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshBody(firstRefreshToken)))
                 .andExpect(status().isUnauthorized());
+
+        List<SecurityEvent> events = securityEventRepository.findByEventTypeOrderByCreatedAtDesc("TOKEN_REPLAY");
+        assertFalse(events.isEmpty());
+        SecurityEvent replay = events.getFirst();
+        assertEquals(401, replay.getHttpStatus());
+        assertEquals("TENANT_A", replay.getTenantId());
+        assertEquals("user-a", replay.getUsername());
+        assertEquals("/api/auth/refresh", replay.getPath());
     }
 
     @Test
-    void logoutShouldRevokeRefreshToken() throws Exception {
+    void logoutShouldRevokeRefreshTokenWithoutClassifyingItAsReplay() throws Exception {
+        int replayEventsBefore = securityEventRepository.findByEventTypeOrderByCreatedAtDesc("TOKEN_REPLAY").size();
         String refreshToken = loginAndGetRefreshToken();
 
         mockMvc.perform(post("/api/auth/logout")
@@ -87,6 +105,9 @@ class AuthRefreshTokenIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshBody(refreshToken)))
                 .andExpect(status().isUnauthorized());
+
+        int replayEventsAfter = securityEventRepository.findByEventTypeOrderByCreatedAtDesc("TOKEN_REPLAY").size();
+        assertEquals(replayEventsBefore, replayEventsAfter);
     }
 
     private String loginAndGetRefreshToken() throws Exception {
