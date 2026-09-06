@@ -2,14 +2,6 @@ spring:
   application:
     name: tenantguard-java
 
-  autoconfigure:
-    exclude:
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
-
   datasource:
     url: ${SPRING_DATASOURCE_URL}
     username: ${SPRING_DATASOURCE_USERNAME}
@@ -28,22 +20,6 @@ spring:
 
   flyway:
     enabled: true
-
-  ai:
-    model:
-      chat: ${SPRING_AI_MODEL_CHAT:none}
-      embedding: none
-      image: none
-      moderation: none
-      audio:
-        speech: none
-        transcription: none
-    openai:
-      api-key: ${OPENAI_API_KEY:}
-      chat:
-        options:
-          model: ${OPENAI_MODEL:gpt-4o-mini}
-          temperature: ${OPENAI_TEMPERATURE:0.2}
 
 server:
   port: ${SERVER_PORT:8080}
