@@ -2,10 +2,12 @@ package com.jucelio.tenantguard.security.audit;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
 import com.jucelio.tenantguard.tenant.RlsTenantGuard;
+import com.jucelio.tenantguard.tenant.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 
 @Service
 public class SecurityEventService {
@@ -76,6 +79,22 @@ public class SecurityEventService {
             log.warn("security_event_audit_failed eventType={} status={} path={}",
                     eventType, httpStatus, request.getRequestURI());
         }
+    }
+
+    @Transactional(readOnly = true)
+    public List<SecurityEventResponse> findCurrentTenantEvents(int lookbackHours, int limit) {
+        String tenantId = TenantContext.getTenant();
+        rlsTenantGuard.applyTenant(tenantId);
+        OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusHours(lookbackHours);
+
+        return repository.findByTenantIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                        tenantId,
+                        cutoff,
+                        PageRequest.of(0, limit)
+                )
+                .stream()
+                .map(SecurityEventResponse::from)
+                .toList();
     }
 
     private AuthenticatedUser currentUser() {
