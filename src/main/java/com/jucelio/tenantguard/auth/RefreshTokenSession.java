@@ -11,6 +11,9 @@ import java.time.OffsetDateTime;
 @Table(name = "refresh_token_sessions")
 public class RefreshTokenSession {
 
+    public static final String REVOCATION_REASON_ROTATED = "ROTATED";
+    public static final String REVOCATION_REASON_LOGOUT = "LOGOUT";
+
     @Id
     @Column(length = 100, nullable = false)
     private String jti;
@@ -32,6 +35,9 @@ public class RefreshTokenSession {
 
     @Column(name = "revoked_at")
     private OffsetDateTime revokedAt;
+
+    @Column(name = "revocation_reason", length = 20)
+    private String revocationReason;
 
     protected RefreshTokenSession() {
     }
@@ -75,11 +81,20 @@ public class RefreshTokenSession {
         return revokedAt;
     }
 
-    public void revoke(OffsetDateTime when) {
+    public String getRevocationReason() {
+        return revocationReason;
+    }
+
+    public void revoke(OffsetDateTime when, String reason) {
         this.revokedAt = when;
+        this.revocationReason = reason;
     }
 
     public boolean isActive(OffsetDateTime now) {
         return revokedAt == null && expiresAt.isAfter(now);
+    }
+
+    public boolean wasRotated() {
+        return REVOCATION_REASON_ROTATED.equals(revocationReason);
     }
 }
