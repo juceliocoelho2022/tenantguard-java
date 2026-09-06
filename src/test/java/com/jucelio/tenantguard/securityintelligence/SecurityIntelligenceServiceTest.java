@@ -29,8 +29,8 @@ class SecurityIntelligenceServiceTest {
 
         TenantContext.setTenant("TENANT_A");
         when(auditService.findCurrentTenantEvents()).thenReturn(List.of(
-                event(1L, "TENANT_A", "SUCCESS"),
-                event(2L, "TENANT_A", "FAILURE")
+                event(1L, "TENANT_A", "ORDER_READ", "SUCCESS", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_A", "ORDER_READ", "FAILURE", "2026-09-06T12:05:00Z")
         ));
 
         SecurityAnalysis result = service.analyzeCurrentTenant();
@@ -38,7 +38,11 @@ class SecurityIntelligenceServiceTest {
         assertThat(result.tenantId()).isEqualTo("TENANT_A");
         assertThat(result.totalEvents()).isEqualTo(2);
         assertThat(result.failedEvents()).isEqualTo(1);
+        assertThat(result.riskScore()).isEqualTo(10);
         assertThat(result.riskLevel()).isEqualTo(SecurityAnalysis.RiskLevel.LOW);
+        assertThat(result.categories()).containsExactly(SecurityAnalysis.SignalCategory.GENERIC_FAILURE);
+        assertThat(result.analysisWindowStart()).isEqualTo(OffsetDateTime.parse("2026-09-06T12:00:00Z"));
+        assertThat(result.analysisWindowEnd()).isEqualTo(OffsetDateTime.parse("2026-09-06T12:05:00Z"));
     }
 
     @Test
@@ -49,8 +53,8 @@ class SecurityIntelligenceServiceTest {
 
         TenantContext.setTenant("TENANT_A");
         when(auditService.findCurrentTenantEvents()).thenReturn(List.of(
-                event(1L, "TENANT_A", "SUCCESS"),
-                event(2L, "TENANT_B", "FAILURE")
+                event(1L, "TENANT_A", "ORDER_READ", "SUCCESS", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_B", "ORDER_READ", "FAILURE", "2026-09-06T12:05:00Z")
         ));
 
         assertThatThrownBy(service::analyzeCurrentTenant)
@@ -63,12 +67,13 @@ class SecurityIntelligenceServiceTest {
         DeterministicSecurityAnalysisProvider provider = new DeterministicSecurityAnalysisProvider();
 
         SecurityAnalysis result = provider.analyze("TENANT_A", List.of(
-                event(1L, "TENANT_A", "FAILURE"),
-                event(2L, "TENANT_A", "DENIED")
+                event(1L, "TENANT_A", "ORDER_READ", "FAILURE", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_A", "ORDER_READ", "DENIED", "2026-09-06T12:01:00Z")
         ));
 
         assertThat(result.riskLevel()).isEqualTo(SecurityAnalysis.RiskLevel.MEDIUM);
         assertThat(result.failedEvents()).isEqualTo(2);
+        assertThat(result.riskScore()).isEqualTo(25);
     }
 
     @Test
@@ -76,29 +81,65 @@ class SecurityIntelligenceServiceTest {
         DeterministicSecurityAnalysisProvider provider = new DeterministicSecurityAnalysisProvider();
 
         SecurityAnalysis result = provider.analyze("TENANT_A", List.of(
-                event(1L, "TENANT_A", "FAILURE"),
-                event(2L, "TENANT_A", "FAILURE"),
-                event(3L, "TENANT_A", "DENIED"),
-                event(4L, "TENANT_A", "ERROR"),
-                event(5L, "TENANT_A", null)
+                event(1L, "TENANT_A", "ORDER_READ", "FAILURE", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_A", "ORDER_READ", "FAILURE", "2026-09-06T12:01:00Z"),
+                event(3L, "TENANT_A", "ORDER_READ", "DENIED", "2026-09-06T12:02:00Z"),
+                event(4L, "TENANT_A", "ORDER_READ", "ERROR", "2026-09-06T12:03:00Z"),
+                event(5L, "TENANT_A", "ORDER_READ", null, "2026-09-06T12:04:00Z")
         ));
 
         assertThat(result.riskLevel()).isEqualTo(SecurityAnalysis.RiskLevel.HIGH);
         assertThat(result.failedEvents()).isEqualTo(5);
+        assertThat(result.riskScore()).isEqualTo(55);
     }
 
-    private AuditEventResponse event(Long id, String tenantId, String outcome) {
+    @Test
+    void shouldWeightReplayAndRateLimitSignals() {
+        DeterministicSecurityAnalysisProvider provider = new DeterministicSecurityAnalysisProvider();
+
+        SecurityAnalysis result = provider.analyze("TENANT_A", List.of(
+                event(1L, "TENANT_A", "REFRESH_TOKEN_REPLAY", "FAILURE", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_A", "AUTH_RATE_LIMIT", "429", "2026-09-06T12:01:00Z")
+        ));
+
+        assertThat(result.riskScore()).isEqualTo(50);
+        assertThat(result.riskLevel()).isEqualTo(SecurityAnalysis.RiskLevel.HIGH);
+        assertThat(result.categories()).containsExactly(
+                SecurityAnalysis.SignalCategory.TOKEN_REPLAY,
+                SecurityAnalysis.SignalCategory.RATE_LIMIT
+        );
+        assertThat(result.recommendations())
+                .anyMatch(value -> value.contains("replay"))
+                .anyMatch(value -> value.contains("rate limit"));
+    }
+
+    @Test
+    void shouldCapRiskScoreAtOneHundred() {
+        DeterministicSecurityAnalysisProvider provider = new DeterministicSecurityAnalysisProvider();
+
+        SecurityAnalysis result = provider.analyze("TENANT_A", List.of(
+                event(1L, "TENANT_A", "REFRESH_TOKEN_REPLAY", "FAILURE", "2026-09-06T12:00:00Z"),
+                event(2L, "TENANT_A", "REFRESH_TOKEN_REPLAY", "FAILURE", "2026-09-06T12:01:00Z"),
+                event(3L, "TENANT_A", "REFRESH_TOKEN_REPLAY", "FAILURE", "2026-09-06T12:02:00Z"),
+                event(4L, "TENANT_A", "REFRESH_TOKEN_REPLAY", "FAILURE", "2026-09-06T12:03:00Z")
+        ));
+
+        assertThat(result.riskScore()).isEqualTo(100);
+        assertThat(result.riskLevel()).isEqualTo(SecurityAnalysis.RiskLevel.HIGH);
+    }
+
+    private AuditEventResponse event(Long id, String tenantId, String action, String outcome, String createdAt) {
         return new AuditEventResponse(
                 id,
                 tenantId,
                 "user-a",
-                "ORDER_READ",
+                action,
                 "ORDER",
                 "1",
                 outcome,
                 "request-" + id,
                 "trace-" + id,
-                OffsetDateTime.parse("2026-09-06T12:00:00Z")
+                OffsetDateTime.parse(createdAt)
         );
     }
 }
