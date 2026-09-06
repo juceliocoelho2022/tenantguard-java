@@ -41,9 +41,16 @@ public class AuthTokenService {
         RefreshTokenSession session = repository.findByJtiForUpdate(details.jti())
                 .orElseThrow(() -> new IllegalArgumentException("Refresh token não reconhecido."));
 
-        validateSession(session, details, now);
+        validateIdentityAndExpiration(session, details, now);
 
-        session.revoke(now);
+        if (session.getRevokedAt() != null) {
+            if (session.wasRotated()) {
+                throw new RefreshTokenReplayException(details.user());
+            }
+            throw new IllegalArgumentException("Refresh token revogado.");
+        }
+
+        session.revoke(now, RefreshTokenSession.REVOCATION_REASON_ROTATED);
         repository.save(session);
 
         return issueNewSession(details.user());
@@ -58,8 +65,13 @@ public class AuthTokenService {
         RefreshTokenSession session = repository.findByJtiForUpdate(details.jti())
                 .orElseThrow(() -> new IllegalArgumentException("Refresh token não reconhecido."));
 
-        validateSession(session, details, now);
-        session.revoke(now);
+        validateIdentityAndExpiration(session, details, now);
+
+        if (session.getRevokedAt() != null) {
+            throw new IllegalArgumentException("Refresh token revogado.");
+        }
+
+        session.revoke(now, RefreshTokenSession.REVOCATION_REASON_LOGOUT);
         repository.save(session);
     }
 
@@ -87,18 +99,18 @@ public class AuthTokenService {
         );
     }
 
-    private void validateSession(
+    private void validateIdentityAndExpiration(
             RefreshTokenSession session,
             JwtService.RefreshTokenDetails details,
             OffsetDateTime now) {
 
         AuthenticatedUser user = details.user();
 
-        if (!session.isActive(now)
-                || !session.getUsername().equals(user.username())
+        if (!session.getUsername().equals(user.username())
                 || !session.getTenantId().equals(user.tenantId())
-                || !session.getRole().equals(user.role())) {
-            throw new IllegalArgumentException("Refresh token revogado, expirado ou inconsistente.");
+                || !session.getRole().equals(user.role())
+                || !session.getExpiresAt().isAfter(now)) {
+            throw new IllegalArgumentException("Refresh token expirado ou inconsistente.");
         }
     }
 }

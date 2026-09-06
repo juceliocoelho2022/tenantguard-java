@@ -62,9 +62,21 @@ public class AuthController {
             LoginResponse response = authTokenService.rotate(request.refreshToken());
             authenticationMetrics.record("refresh", "success");
             return response;
+        } catch (RefreshTokenReplayException ex) {
+            authenticationMetrics.record("refresh", "failure");
+            AuthenticatedUser user = ex.getUser();
+            securityEventService.recordForTenant(
+                    httpRequest,
+                    "TOKEN_REPLAY",
+                    401,
+                    user.username(),
+                    user.tenantId(),
+                    "Previously rotated refresh token was reused"
+            );
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token reutilizado e revogado.");
         } catch (Exception ex) {
             authenticationMetrics.record("refresh", "failure");
-            securityEventService.record(httpRequest, "REFRESH_FAILED", 401, null, "Refresh token invalid, expired, revoked, or replayed");
+            securityEventService.record(httpRequest, "REFRESH_FAILED", 401, null, "Refresh token invalid, expired, or revoked");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido, expirado ou revogado.");
         }
     }

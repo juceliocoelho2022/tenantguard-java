@@ -2,10 +2,12 @@ package com.jucelio.tenantguard.security.audit;
 
 import com.jucelio.tenantguard.security.AuthenticatedUser;
 import com.jucelio.tenantguard.tenant.RlsTenantGuard;
+import com.jucelio.tenantguard.tenant.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 
 @Service
 public class SecurityEventService {
@@ -58,24 +61,75 @@ public class SecurityEventService {
                 return;
             }
 
-            rlsTenantGuard.applyTenant(tenantId);
-            repository.save(new SecurityEvent(
-                    eventType,
-                    httpStatus,
-                    tenantId,
-                    effectiveUsername,
-                    request.getMethod(),
-                    request.getRequestURI(),
-                    request.getRemoteAddr(),
-                    MDC.get("requestId"),
-                    MDC.get("traceId"),
-                    details,
-                    createdAt
-            ));
+            saveTenantEvent(request, eventType, httpStatus, effectiveUsername, tenantId, details, createdAt);
         } catch (Exception ex) {
             log.warn("security_event_audit_failed eventType={} status={} path={}",
                     eventType, httpStatus, request.getRequestURI());
         }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordForTenant(
+            HttpServletRequest request,
+            String eventType,
+            int httpStatus,
+            String username,
+            String tenantId,
+            String details) {
+        try {
+            saveTenantEvent(
+                    request,
+                    eventType,
+                    httpStatus,
+                    username,
+                    tenantId,
+                    details,
+                    OffsetDateTime.now(ZoneOffset.UTC)
+            );
+        } catch (Exception ex) {
+            log.warn("security_event_audit_failed eventType={} status={} path={} tenantId={}",
+                    eventType, httpStatus, request.getRequestURI(), tenantId);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<SecurityEventResponse> findCurrentTenantEvents(int lookbackHours, int limit) {
+        String tenantId = TenantContext.getTenant();
+        rlsTenantGuard.applyTenant(tenantId);
+        OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusHours(lookbackHours);
+
+        return repository.findByTenantIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                        tenantId,
+                        cutoff,
+                        PageRequest.of(0, limit)
+                )
+                .stream()
+                .map(SecurityEventResponse::from)
+                .toList();
+    }
+
+    private void saveTenantEvent(
+            HttpServletRequest request,
+            String eventType,
+            int httpStatus,
+            String username,
+            String tenantId,
+            String details,
+            OffsetDateTime createdAt) {
+        rlsTenantGuard.applyTenant(tenantId);
+        repository.save(new SecurityEvent(
+                eventType,
+                httpStatus,
+                tenantId,
+                username,
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getRemoteAddr(),
+                MDC.get("requestId"),
+                MDC.get("traceId"),
+                details,
+                createdAt
+        ));
     }
 
     private AuthenticatedUser currentUser() {

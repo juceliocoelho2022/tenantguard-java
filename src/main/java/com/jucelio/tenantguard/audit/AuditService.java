@@ -4,6 +4,7 @@ import com.jucelio.tenantguard.security.AuthenticatedUser;
 import com.jucelio.tenantguard.tenant.RlsTenantGuard;
 import com.jucelio.tenantguard.tenant.TenantContext;
 import org.slf4j.MDC;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,23 @@ public class AuditService {
         rlsTenantGuard.applyCurrentTenant();
 
         return repository.findByTenantIdOrderByCreatedAtDesc(tenantId)
+                .stream()
+                .map(AuditEventResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AuditEventResponse> findCurrentTenantEvents(int lookbackHours, int limit) {
+        String tenantId = TenantContext.getTenant();
+        rlsTenantGuard.applyCurrentTenant();
+
+        OffsetDateTime since = OffsetDateTime.now(ZoneOffset.UTC).minusHours(lookbackHours);
+
+        return repository.findByTenantIdAndCreatedAtGreaterThanEqualOrderByCreatedAtDesc(
+                        tenantId,
+                        since,
+                        PageRequest.of(0, limit)
+                )
                 .stream()
                 .map(AuditEventResponse::from)
                 .toList();
