@@ -76,3 +76,5 @@ app:
   security-intelligence:
     ai:
       enabled: ${SECURITY_INTELLIGENCE_AI_ENABLED:false}
+      timeout: ${SECURITY_INTELLIGENCE_AI_TIMEOUT:5s}
+      max-events: ${SECURITY_INTELLIGENCE_AI_MAX_EVENTS:100}
