@@ -61,23 +61,34 @@ public class SecurityEventService {
                 return;
             }
 
-            rlsTenantGuard.applyTenant(tenantId);
-            repository.save(new SecurityEvent(
-                    eventType,
-                    httpStatus,
-                    tenantId,
-                    effectiveUsername,
-                    request.getMethod(),
-                    request.getRequestURI(),
-                    request.getRemoteAddr(),
-                    MDC.get("requestId"),
-                    MDC.get("traceId"),
-                    details,
-                    createdAt
-            ));
+            saveTenantEvent(request, eventType, httpStatus, effectiveUsername, tenantId, details, createdAt);
         } catch (Exception ex) {
             log.warn("security_event_audit_failed eventType={} status={} path={}",
                     eventType, httpStatus, request.getRequestURI());
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordForTenant(
+            HttpServletRequest request,
+            String eventType,
+            int httpStatus,
+            String username,
+            String tenantId,
+            String details) {
+        try {
+            saveTenantEvent(
+                    request,
+                    eventType,
+                    httpStatus,
+                    username,
+                    tenantId,
+                    details,
+                    OffsetDateTime.now(ZoneOffset.UTC)
+            );
+        } catch (Exception ex) {
+            log.warn("security_event_audit_failed eventType={} status={} path={} tenantId={}",
+                    eventType, httpStatus, request.getRequestURI(), tenantId);
         }
     }
 
@@ -95,6 +106,30 @@ public class SecurityEventService {
                 .stream()
                 .map(SecurityEventResponse::from)
                 .toList();
+    }
+
+    private void saveTenantEvent(
+            HttpServletRequest request,
+            String eventType,
+            int httpStatus,
+            String username,
+            String tenantId,
+            String details,
+            OffsetDateTime createdAt) {
+        rlsTenantGuard.applyTenant(tenantId);
+        repository.save(new SecurityEvent(
+                eventType,
+                httpStatus,
+                tenantId,
+                username,
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getRemoteAddr(),
+                MDC.get("requestId"),
+                MDC.get("traceId"),
+                details,
+                createdAt
+        ));
     }
 
     private AuthenticatedUser currentUser() {
