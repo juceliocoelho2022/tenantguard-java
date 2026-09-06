@@ -1,6 +1,5 @@
 package com.jucelio.tenantguard.securityintelligence;
 
-import com.jucelio.tenantguard.audit.AuditEventResponse;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
@@ -15,8 +14,8 @@ import java.util.Set;
 public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisProvider {
 
     @Override
-    public SecurityAnalysis analyze(String tenantId, List<AuditEventResponse> events) {
-        List<AuditEventResponse> failed = events.stream()
+    public SecurityAnalysis analyze(String tenantId, List<SecurityEvidence> events) {
+        List<SecurityEvidence> failed = events.stream()
                 .filter(this::isFailure)
                 .toList();
 
@@ -27,12 +26,12 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
         failed.forEach(event -> categories.add(classify(event)));
 
         OffsetDateTime windowStart = events.stream()
-                .map(AuditEventResponse::createdAt)
+                .map(SecurityEvidence::createdAt)
                 .filter(value -> value != null)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
         OffsetDateTime windowEnd = events.stream()
-                .map(AuditEventResponse::createdAt)
+                .map(SecurityEvidence::createdAt)
                 .filter(value -> value != null)
                 .max(Comparator.naturalOrder())
                 .orElse(null);
@@ -41,13 +40,13 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
         List<String> recommendations = new ArrayList<>();
 
         if (events.isEmpty()) {
-            findings.add("Nenhum evento de auditoria disponível para análise.");
+            findings.add("Nenhum evento de segurança ou auditoria disponível para análise.");
             recommendations.add("Gerar tráfego autenticado antes de avaliar o risco do tenant.");
         } else if (failedEvents == 0) {
-            findings.add("Nenhum evento com outcome diferente de SUCCESS foi identificado.");
-            recommendations.add("Manter o monitoramento contínuo dos eventos de auditoria.");
+            findings.add("Nenhum evento de falha foi identificado no período analisado.");
+            recommendations.add("Manter o monitoramento contínuo dos eventos de segurança e auditoria.");
         } else {
-            findings.add("Foram identificados " + failedEvents + " eventos com outcome de falha.");
+            findings.add("Foram identificados " + failedEvents + " eventos de falha no período analisado.");
             findings.add("Risk score determinístico calculado em " + riskScore + "/100.");
             recommendations.add("Revisar os eventos com falha e correlacioná-los por requestId e traceId.");
             if (categories.contains(SecurityAnalysis.SignalCategory.TOKEN_REPLAY)) {
@@ -55,6 +54,9 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
             }
             if (categories.contains(SecurityAnalysis.SignalCategory.RATE_LIMIT)) {
                 recommendations.add("Correlacionar eventos de rate limit por usuário, origem e janela temporal.");
+            }
+            if (categories.contains(SecurityAnalysis.SignalCategory.ACCESS_DENIED)) {
+                recommendations.add("Revisar tentativas de acesso negado e confirmar o princípio de menor privilégio.");
             }
         }
 
@@ -72,11 +74,14 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
         );
     }
 
-    private boolean isFailure(AuditEventResponse event) {
+    private boolean isFailure(SecurityEvidence event) {
+        if (event.source() == SecurityEvidence.Source.SECURITY) {
+            return parseStatus(event.outcome()) >= 400;
+        }
         return event.outcome() == null || !"SUCCESS".equalsIgnoreCase(event.outcome());
     }
 
-    private int scoreEvent(AuditEventResponse event) {
+    private int scoreEvent(SecurityEvidence event) {
         return switch (classify(event)) {
             case AUTH_FAILURE -> 10;
             case ACCESS_DENIED -> 15;
@@ -86,11 +91,11 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
         };
     }
 
-    private SecurityAnalysis.SignalCategory classify(AuditEventResponse event) {
+    private SecurityAnalysis.SignalCategory classify(SecurityEvidence event) {
         String action = normalize(event.action());
         String outcome = normalize(event.outcome());
 
-        if (action.contains("REPLAY") || action.contains("TOKEN_REUSE")) {
+        if (action.contains("TOKEN_REPLAY") || action.contains("TOKEN_REUSE") || action.contains("REPLAY_DETECTED")) {
             return SecurityAnalysis.SignalCategory.TOKEN_REPLAY;
         }
         if (action.contains("RATE_LIMIT") || outcome.equals("429") || outcome.contains("RATE_LIMIT")) {
@@ -99,10 +104,18 @@ public class DeterministicSecurityAnalysisProvider implements SecurityAnalysisPr
         if (action.contains("ACCESS_DENIED") || action.contains("AUTHORIZATION") || outcome.contains("DENIED") || outcome.equals("403")) {
             return SecurityAnalysis.SignalCategory.ACCESS_DENIED;
         }
-        if (action.contains("LOGIN") || action.contains("AUTH")) {
+        if (action.contains("LOGIN") || action.contains("AUTH") || action.contains("REFRESH_FAILED")) {
             return SecurityAnalysis.SignalCategory.AUTH_FAILURE;
         }
         return SecurityAnalysis.SignalCategory.GENERIC_FAILURE;
+    }
+
+    private int parseStatus(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception ignored) {
+            return 500;
+        }
     }
 
     private String normalize(String value) {
