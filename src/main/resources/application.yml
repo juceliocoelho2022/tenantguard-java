@@ -21,6 +21,16 @@ spring:
   flyway:
     enabled: true
 
+  ai:
+    model:
+      chat: ${SPRING_AI_MODEL_CHAT:none}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: ${OPENAI_TEMPERATURE:0.2}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -73,3 +83,6 @@ app:
         max-attempts: ${AUTH_LOGIN_MAX_ATTEMPTS:5}
       refresh:
         max-attempts: ${AUTH_REFRESH_MAX_ATTEMPTS:10}
+  security-intelligence:
+    ai:
+      enabled: ${SECURITY_INTELLIGENCE_AI_ENABLED:false}
