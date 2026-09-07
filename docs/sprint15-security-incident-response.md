@@ -2,38 +2,41 @@
 
 ## Objetivo
 
-Transformar o TenantGuard de uma plataforma que apenas detecta e analisa sinais de segurança em uma plataforma capaz de **abrir, acompanhar e tratar incidentes de forma controlada, auditável e tenant-aware**.
+Transformar o TenantGuard de uma plataforma que detecta e analisa sinais de segurança em uma plataforma capaz de **abrir, acompanhar e tratar incidentes de forma controlada, auditável e tenant-aware**.
 
-A análise determinística continua sendo a autoridade para risco. A IA permanece restrita à explicação e enriquecimento narrativo. Nenhuma ação bloqueante deve ser executada apenas por recomendação do modelo.
+A análise determinística continua sendo a autoridade para risco. A IA permanece restrita à explicação e ao enriquecimento narrativo. Nenhuma ação crítica ou bloqueante depende exclusivamente de recomendação do modelo.
 
-## Resultado esperado
+## Status da implementação
 
-Ao final do Sprint 15, o TenantGuard deverá:
+O núcleo funcional planejado para o Sprint 15 foi implementado na branch `feat/sprint15-security-incident-response`.
 
-- converter análises de risco relevantes em incidentes de segurança;
-- evitar incidentes duplicados para a mesma causa dentro de uma janela configurável;
-- manter lifecycle explícito de incidente;
-- preservar isolamento por tenant em banco e API;
-- registrar trilha de auditoria das mudanças de estado;
-- expor métricas operacionais para incidentes;
-- permitir operação segura quando a IA estiver indisponível;
-- manter decisões de abertura/prioridade baseadas em regras determinísticas.
+Validação local mais recente em 07/09/2026:
 
-## Arquitetura alvo
+```text
+Tests run: 90
+Failures: 0
+Errors: 0
+Skipped: 0
+BUILD SUCCESS
+```
+
+A conclusão formal do sprint ainda depende dos gates restantes da Definition of Done: CI da branch/PR, validação runtime dos endpoints tenant-aware e cross-tenant, revisão do PR e merge em `main`.
+
+## Arquitetura implementada
 
 ```text
 Security Events / Audit Events
             |
             v
 Security Intelligence
-(deteministic risk authority)
+(deterministic risk authority)
             |
             v
 Incident Policy Engine
             |
             +---- LOW ----> no incident
             |
-            +---- MEDIUM/HIGH/CRITICAL
+            +---- actionable risk
                         |
                         v
                Incident Service
@@ -50,17 +53,19 @@ Incident Policy Engine
       Metrics / Prometheus
 ```
 
-## Escopo 15.1 — Modelo de domínio
+## 15.1 — Modelo de domínio — concluído
 
-Criar pacote `securityincident` com:
+Pacote `securityincident` com:
 
-- `SecurityIncident`
-- `SecurityIncidentStatus`
-- `SecurityIncidentSeverity`
-- `SecurityIncidentRepository`
-- `SecurityIncidentService`
+- `SecurityIncident`;
+- `SecurityIncidentStatus`;
+- `SecurityIncidentSeverity`;
+- `SecurityIncidentDecision`;
+- `SecurityIncidentPolicy`;
+- `SecurityIncidentService`;
+- `SecurityIncidentRepository`.
 
-### Estados
+Lifecycle explícito:
 
 ```text
 OPEN -> INVESTIGATING -> RESOLVED
@@ -69,182 +74,173 @@ OPEN -> INVESTIGATING -> RESOLVED
     +------> DISMISSED
 ```
 
-Transições inválidas devem retornar erro de domínio.
+Transições inválidas são rejeitadas pelo domínio.
 
-### Severidade
-
-- LOW
-- MEDIUM
-- HIGH
-- CRITICAL
-
-A severidade inicial deve derivar deterministicamente do `riskScore` / `riskLevel` existente.
-
-## Escopo 15.2 — Persistência tenant-aware
-
-Nova tabela Flyway `security_incident` contendo, no mínimo:
-
-- `id`
-- `tenant_id`
-- `fingerprint`
-- `severity`
-- `status`
-- `risk_score`
-- `title`
-- `summary`
-- `source_category`
-- `first_seen_at`
-- `last_seen_at`
-- `created_at`
-- `updated_at`
-- `resolved_at`
-- `version`
-
-Requisitos:
-
-- RLS obrigatória;
-- `tenant_id` nunca vem do cliente;
-- índice por `tenant_id`, `status`, `severity`;
-- índice único/estratégia equivalente para deduplicação por fingerprint;
-- optimistic locking via `version`.
-
-## Escopo 15.3 — Incident Policy Engine
-
-Criar uma camada determinística que decide se uma análise deve virar incidente.
-
-Exemplo inicial:
+Severidades:
 
 ```text
-LOW      -> não abre incidente
-MEDIUM   -> abre incidente MEDIUM quando houver sinal acionável
-HIGH     -> abre incidente HIGH
-CRITICAL -> abre incidente CRITICAL
+LOW
+MEDIUM
+HIGH
+CRITICAL
 ```
 
-O policy engine deve receber `SecurityAnalysis` e retornar uma decisão explícita, por exemplo:
+A classificação é determinística e baseada no score e nos sinais produzidos pelo Security Intelligence.
 
-```java
-IncidentDecision(
-    boolean createIncident,
-    SecurityIncidentSeverity severity,
-    String reason
-)
-```
+## 15.2 — Persistência tenant-aware — concluído
 
-A decisão não pode depender de texto gerado pela IA.
+A entidade `SecurityIncident` é persistida em PostgreSQL com JPA e optimistic locking via `@Version`.
 
-## Escopo 15.4 — Deduplicação / fingerprint
+As migrations do Sprint 15 criam `security_incidents`, índices operacionais, RLS e a restrição de deduplicação ativa.
 
-Incidentes equivalentes não devem gerar avalanche de registros.
+Controles implementados:
 
-Gerar fingerprint estável utilizando campos determinísticos, por exemplo:
+- `tenant_id` não é fornecido pelo cliente;
+- RLS com `ENABLE ROW LEVEL SECURITY` e `FORCE ROW LEVEL SECURITY`;
+- policy vinculada ao `app.current_tenant`;
+- acesso pelo role `tenantguard_app`;
+- optimistic locking;
+- índices tenant-aware;
+- testes Testcontainers para isolamento e rejeição cross-tenant.
+
+## 15.3 — Incident Policy Engine — concluído
+
+`SecurityIncidentPolicy` recebe `SecurityAnalysis` e decide deterministicamente se um incidente deve ser aberto.
+
+Regras atuais incluem threshold de score e tratamento explícito de `TOKEN_REPLAY`. A severidade do incidente é derivada pelo backend.
+
+**Invariante:** texto produzido por LLM não participa da decisão de abertura, classificação ou lifecycle do incidente.
+
+## 15.4 — Deduplicação e fingerprint — concluído
+
+O fingerprint foi isolado em `SecurityIncidentFingerprint` e usa apenas atributos estáveis disponíveis no modelo atual:
 
 ```text
-tenantId + primaryCategory + affectedUser + normalizedAction
+tenantId + categorias de sinal ordenadas
 ```
 
-A estratégia final deve ser testável e documentada.
+O SHA-256 resultante não depende de:
 
-Comportamento esperado:
+- `riskScore`;
+- `riskLevel`;
+- janela temporal;
+- timestamps;
+- findings;
+- recommendations;
+- texto produzido pela IA.
 
-- primeiro sinal relevante -> cria incidente;
-- novo sinal equivalente dentro da janela -> atualiza `last_seen_at` e contadores;
-- sinal diferente -> novo incidente.
+Testes comprovam que a ordem das categorias e mudanças de score/risk level não alteram o fingerprint, enquanto tenants diferentes produzem fingerprints diferentes.
 
-## Escopo 15.5 — API administrativa
+A tabela também possui índice único parcial para impedir mais de um incidente ativo com o mesmo `(tenant_id, fingerprint)` nos estados `OPEN` e `INVESTIGATING`.
 
-Endpoints sugeridos:
+### Limitação conhecida
+
+O modelo `SecurityAnalysis` atual não possui `affectedUser` ou `normalizedAction`. Por isso, o fingerprint por categorias é deliberadamente mais amplo. Uma evolução futura pode aumentar a granularidade quando esses atributos fizerem parte do sinal determinístico.
+
+O índice único protege a integridade contra duplicatas ativas. O fluxo de aplicação ainda utiliza consulta seguida de persistência; portanto, tratamento transparente de corrida concorrente via `INSERT ... ON CONFLICT` não faz parte desta entrega e não deve ser confundido com deduplicação totalmente lock-free.
+
+## 15.5 — API administrativa — concluído
+
+Endpoints implementados:
 
 ```text
-GET    /api/admin/security-incidents
-GET    /api/admin/security-incidents/{id}
-PATCH  /api/admin/security-incidents/{id}/status
+GET   /api/admin/security-incidents
+GET   /api/admin/security-incidents/{id}
+PATCH /api/admin/security-incidents/{id}/investigate
+PATCH /api/admin/security-incidents/{id}/resolve
+PATCH /api/admin/security-incidents/{id}/dismiss
 ```
-
-Filtros:
-
-- status
-- severity
-- período
 
 Regras:
 
-- apenas ADMIN;
-- tenant derivado do JWT;
-- acesso cross-tenant retorna 404;
-- payloads não expõem detalhes sensíveis desnecessários.
+- acesso administrativo protegido por RBAC;
+- tenant derivado do JWT/TenantContext;
+- tenant não é aceito no payload;
+- recurso cross-tenant é tratado como não encontrado;
+- resposta não expõe `tenantId`;
+- resolução/descartes aceitam nota validada sem inseri-la como tag de métrica.
 
-## Escopo 15.6 — Auditoria
+## 15.6 — Auditoria — concluído
 
-Registrar mudanças de lifecycle:
-
-- incidente criado;
-- status alterado;
-- incidente resolvido;
-- incidente descartado.
-
-Campos mínimos:
+`SecurityIncidentAuditService` centraliza eventos de lifecycle:
 
 ```text
-tenantId
-incidentId
-actor
-action
-oldStatus
-newStatus
-requestId
-traceId
-timestamp
+SECURITY_INCIDENT_OPENED
+SECURITY_INCIDENT_INVESTIGATION_STARTED
+SECURITY_INCIDENT_RESOLVED
+SECURITY_INCIDENT_DISMISSED
 ```
 
-## Escopo 15.7 — Observabilidade
+A auditoria registra o incidente como recurso e reutiliza o contexto autenticado, tenant, request/trace correlation e timestamp do mecanismo existente de audit trail.
 
-Métricas Micrometer:
+Notas de resolução e payloads sensíveis não são copiados para o evento de auditoria.
+
+Existe teste de integração provando o caminho HTTP -> Security -> Incident Service -> Audit persistence.
+
+## 15.7 — Observabilidade — concluído
+
+Métricas Micrometer implementadas:
 
 ```text
-tenantguard.security.incidents.created
-tenantguard.security.incidents.updated
+tenantguard.security.incidents.opened
+tenantguard.security.incidents.deduplicated
+tenantguard.security.incidents.investigation.started
 tenantguard.security.incidents.resolved
 tenantguard.security.incidents.dismissed
-tenantguard.security.incidents.open
+tenantguard.security.incidents.closure.duration
 ```
 
-Evitar `tenantId` como tag para não criar alta cardinalidade.
+Tags são limitadas a dimensões de baixa cardinalidade, como `severity` e `outcome`.
 
-Tags permitidas quando úteis:
+Não são usadas como tags:
 
-- severity
-- status
+- tenantId;
+- incidentId;
+- fingerprint;
+- username;
+- resolution note.
 
-## Escopo 15.8 — Testes
+Não foi criado gauge process-local de incidentes ativos, pois ele poderia representar incorretamente o estado global em reinícios ou múltiplas réplicas. Uma métrica desse tipo deve ser derivada de fonte persistente com semântica multi-tenant adequada.
 
-Cobertura mínima:
+## 15.8 — Testes — concluído localmente
 
-- policy engine LOW não abre incidente;
-- HIGH abre incidente;
-- severidade é derivada deterministicamente;
-- incidente duplicado é consolidado;
-- transição válida de estado funciona;
-- transição inválida é rejeitada;
-- USER recebe 403;
-- ADMIN acessa incidente do próprio tenant;
-- cross-tenant retorna 404;
-- RLS impede acesso indevido;
-- métricas são incrementadas corretamente.
+Cobertura inclui:
 
-Meta inicial do Sprint 15:
+- LOW sem abertura de incidente;
+- threshold e `TOKEN_REPLAY`;
+- severidade determinística;
+- fingerprint estável;
+- deduplicação ativa;
+- lifecycle válido e inválido;
+- optimistic locking/persistência;
+- RLS e rejeição cross-tenant;
+- `401`, `403`, `404`, `400` e `409` nos cenários relevantes;
+- API administrativa;
+- persistência da auditoria;
+- contadores e timer Micrometer;
+- integração com PostgreSQL via Testcontainers.
+
+Meta inicial:
 
 ```text
->= 70 testes totais
+>= 70 testes
 0 failures
 0 errors
 ```
 
-A quantidade é secundária à cobertura dos invariantes de segurança.
+Resultado local atual:
+
+```text
+90 testes
+0 failures
+0 errors
+0 skipped
+BUILD SUCCESS
+```
 
 ## Fora do escopo inicial
 
-Para evitar excesso de acoplamento neste sprint:
+Permanecem fora desta entrega:
 
 - Kafka / event streaming externo;
 - notificações Slack/e-mail;
@@ -253,18 +249,22 @@ Para evitar excesso de acoplamento neste sprint:
 - SOAR externo;
 - webhook de terceiros.
 
-Esses itens podem compor o Sprint 16 após o lifecycle de incidentes estar estável.
+Esses itens podem compor o Sprint 16 após a consolidação do lifecycle de incidentes.
 
 ## Definition of Done
 
-Sprint 15 só pode ser concluído quando:
+Status dos gates:
 
-- migrations passam do zero e em banco existente;
-- testes Maven passam localmente;
-- CI GitHub Actions passa;
-- endpoint tenant-aware é validado em runtime;
-- cross-tenant é validado em runtime;
-- nenhuma decisão crítica depende de saída do LLM;
-- logs não vazam secrets ou payloads sensíveis;
-- documentação é atualizada;
-- PR é revisado antes do merge em `main`.
+- [x] implementação das migrations;
+- [x] suíte Maven completa passa localmente — 90/90;
+- [x] RLS e cross-tenant cobertos por Testcontainers/MockMvc;
+- [x] decisões críticas independem de saída do LLM;
+- [x] métricas evitam identificadores de alta cardinalidade;
+- [x] documentação atualizada;
+- [ ] GitHub Actions CI confirmado para o head final;
+- [ ] endpoint tenant-aware validado manualmente em runtime no head final;
+- [ ] cross-tenant validado manualmente em runtime no head final;
+- [ ] PR revisado;
+- [ ] merge em `main`.
+
+O Sprint 15 deve ser marcado como formalmente concluído somente após os gates pendentes acima.
