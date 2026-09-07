@@ -23,6 +23,7 @@ public class SecurityIncidentService {
     private final SecurityIncidentRepository repository;
     private final RlsTenantGuard rlsTenantGuard;
     private final SecurityIncidentAuditService auditService;
+    private final SecurityIncidentMetrics metrics;
     private final Clock clock;
 
     @Autowired
@@ -30,9 +31,10 @@ public class SecurityIncidentService {
             SecurityIncidentPolicy policy,
             SecurityIncidentRepository repository,
             RlsTenantGuard rlsTenantGuard,
-            SecurityIncidentAuditService auditService
+            SecurityIncidentAuditService auditService,
+            SecurityIncidentMetrics metrics
     ) {
-        this(policy, repository, rlsTenantGuard, auditService, Clock.systemUTC());
+        this(policy, repository, rlsTenantGuard, auditService, metrics, Clock.systemUTC());
     }
 
     SecurityIncidentService(
@@ -40,12 +42,14 @@ public class SecurityIncidentService {
             SecurityIncidentRepository repository,
             RlsTenantGuard rlsTenantGuard,
             SecurityIncidentAuditService auditService,
+            SecurityIncidentMetrics metrics,
             Clock clock
     ) {
         this.policy = policy;
         this.repository = repository;
         this.rlsTenantGuard = rlsTenantGuard;
         this.auditService = auditService;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -70,6 +74,7 @@ public class SecurityIncidentService {
                 );
 
         if (activeIncident.isPresent()) {
+            metrics.deduplicated(activeIncident.get());
             return activeIncident;
         }
 
@@ -83,6 +88,7 @@ public class SecurityIncidentService {
 
         SecurityIncident saved = repository.save(incident);
         auditService.opened(saved);
+        metrics.opened(saved);
         return Optional.of(saved);
     }
 
@@ -106,6 +112,7 @@ public class SecurityIncidentService {
         incident.startInvestigation(OffsetDateTime.now(clock));
         SecurityIncident saved = repository.save(incident);
         auditService.investigationStarted(saved);
+        metrics.investigationStarted(saved);
         return saved;
     }
 
@@ -115,6 +122,7 @@ public class SecurityIncidentService {
         incident.resolve(note, OffsetDateTime.now(clock));
         SecurityIncident saved = repository.save(incident);
         auditService.resolved(saved);
+        metrics.resolved(saved);
         return saved;
     }
 
@@ -124,6 +132,7 @@ public class SecurityIncidentService {
         incident.dismiss(note, OffsetDateTime.now(clock));
         SecurityIncident saved = repository.save(incident);
         auditService.dismissed(saved);
+        metrics.dismissed(saved);
         return saved;
     }
 
