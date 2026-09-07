@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -104,6 +105,58 @@ class PostgresRlsIntegrationTest {
 
     @Test
     @Transactional
+    void securityIncidents_shouldBeIsolatedByTenant() {
+        insertSecurityIncident("TENANT_A", "fingerprint-a", "OPEN");
+        insertSecurityIncident("TENANT_B", "fingerprint-b", "OPEN");
+
+        applyTenant("TENANT_A");
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM security_incidents",
+                Integer.class
+        );
+
+        assertEquals(1, count);
+    }
+
+    @Test
+    @Transactional
+    void securityIncidents_shouldRejectCrossTenantInsert() {
+        applyTenant("TENANT_A");
+
+        assertThrows(DataAccessException.class, () ->
+                jdbcTemplate.update(
+                        """
+                        INSERT INTO security_incidents (
+                            id, tenant_id, severity, risk_score, fingerprint, status,
+                            created_at, updated_at, version
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        UUID.randomUUID(),
+                        "TENANT_B",
+                        "HIGH",
+                        70,
+                        "cross-tenant-fingerprint",
+                        "OPEN",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now(),
+                        0L
+                )
+        );
+    }
+
+    @Test
+    @Transactional
+    void securityIncidents_shouldRejectDuplicateActiveFingerprintPerTenant() {
+        insertSecurityIncident("TENANT_A", "same-fingerprint", "OPEN");
+
+        assertThrows(DataAccessException.class, () ->
+                insertSecurityIncident("TENANT_A", "same-fingerprint", "INVESTIGATING")
+        );
+    }
+
+    @Test
+    @Transactional
     void auditWriter_shouldInsertPreAuthenticationEventWithoutReadPermission() {
         jdbcTemplate.execute("SET LOCAL ROLE tenantguard_audit");
 
@@ -115,6 +168,26 @@ class PostgresRlsIntegrationTest {
         assertEquals(1, inserted);
         assertThrows(DataAccessException.class, () ->
                 jdbcTemplate.queryForObject("SELECT COUNT(*) FROM security_events", Integer.class)
+        );
+    }
+
+    private void insertSecurityIncident(String tenantId, String fingerprint, String status) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO security_incidents (
+                    id, tenant_id, severity, risk_score, fingerprint, status,
+                    created_at, updated_at, version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(),
+                tenantId,
+                "HIGH",
+                70,
+                fingerprint,
+                status,
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                0L
         );
     }
 
