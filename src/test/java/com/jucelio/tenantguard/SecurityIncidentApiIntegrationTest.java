@@ -17,8 +17,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -51,6 +53,7 @@ class SecurityIncidentApiIntegrationTest {
 
     @BeforeEach
     void seedIncidents() {
+        jdbcTemplate.update("DELETE FROM audit_events");
         jdbcTemplate.update("DELETE FROM security_incidents");
         insertIncident(TENANT_A_INCIDENT, "TENANT_A", "OPEN", "a".repeat(64));
         insertIncident(TENANT_B_INCIDENT, "TENANT_B", "OPEN", "b".repeat(64));
@@ -94,6 +97,25 @@ class SecurityIncidentApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer("admin-a", "TENANT_A", "ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INVESTIGATING"));
+    }
+
+    @Test
+    void investigation_shouldPersistTenantSafeAuditEvent() throws Exception {
+        mockMvc.perform(patch("/api/admin/security-incidents/{id}/investigate", TENANT_A_INCIDENT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer("admin-a", "TENANT_A", "ADMIN")))
+                .andExpect(status().isOk());
+
+        Map<String, Object> audit = jdbcTemplate.queryForMap(
+                "SELECT tenant_id, username, action, resource_type, resource_id, outcome " +
+                        "FROM audit_events WHERE action = ?",
+                "SECURITY_INCIDENT_INVESTIGATION_STARTED"
+        );
+
+        assertEquals("TENANT_A", audit.get("tenant_id"));
+        assertEquals("admin-a", audit.get("username"));
+        assertEquals("SECURITY_INCIDENT", audit.get("resource_type"));
+        assertEquals(TENANT_A_INCIDENT.toString(), audit.get("resource_id"));
+        assertEquals("SUCCESS", audit.get("outcome"));
     }
 
     @Test
