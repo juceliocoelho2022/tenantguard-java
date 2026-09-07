@@ -76,7 +76,9 @@ class SecurityIncidentApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].id").value(TENANT_A_INCIDENT.toString()))
-                .andExpect(jsonPath("$[0].tenantId").value("TENANT_A"));
+                .andExpect(jsonPath("$[0].status").value("OPEN"))
+                .andExpect(jsonPath("$[0].severity").value("HIGH"))
+                .andExpect(jsonPath("$[0].tenantId").doesNotExist());
     }
 
     @Test
