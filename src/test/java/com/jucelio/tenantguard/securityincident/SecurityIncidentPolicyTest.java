@@ -115,16 +115,16 @@ class SecurityIncidentPolicyTest {
                 List.of(SecurityAnalysis.SignalCategory.ACCESS_DENIED)
         );
 
-        SecurityAnalysis critical = analysis(
+        SecurityAnalysis highRiskScore = analysis(
                 "TENANT_A",
                 85,
-                SecurityAnalysis.RiskLevel.CRITICAL,
+                SecurityAnalysis.RiskLevel.HIGH,
                 List.of(SecurityAnalysis.SignalCategory.ACCESS_DENIED)
         );
 
         assertEquals(
                 policy.evaluate(medium).orElseThrow().fingerprint(),
-                policy.evaluate(critical).orElseThrow().fingerprint()
+                policy.evaluate(highRiskScore).orElseThrow().fingerprint()
         );
     }
 
