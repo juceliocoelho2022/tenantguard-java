@@ -3,6 +3,8 @@ package com.jucelio.tenantguard.securityintelligence;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
@@ -14,6 +16,9 @@ import java.util.List;
 @Component
 @Primary
 public class SecurityAnalysisOrchestrator implements SecurityAnalysisProvider {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(SecurityAnalysisOrchestrator.class);
 
     private final DeterministicSecurityAnalysisProvider deterministicProvider;
     private final ObjectProvider<AiSecurityClient> aiClientProvider;
@@ -49,6 +54,11 @@ public class SecurityAnalysisOrchestrator implements SecurityAnalysisProvider {
     @Override
     public SecurityAnalysis analyze(String tenantId, List<SecurityEvidence> events) {
         SecurityAnalysis deterministic = deterministicProvider.analyze(tenantId, events);
+
+        if (events.isEmpty()) {
+            return deterministic;
+        }
+
         AiSecurityClient aiClient = aiClientProvider.getIfAvailable();
 
         if (aiClient == null) {
@@ -63,14 +73,25 @@ public class SecurityAnalysisOrchestrator implements SecurityAnalysisProvider {
         Timer.Sample sample = Timer.start(meterRegistry);
 
         try {
-            AiSecurityInsight insight = aiClient.analyze(AiSecurityRequest.from(deterministic, boundedEvents));
+            AiSecurityInsight insight =
+                    aiClient.analyze(
+                            AiSecurityRequest.from(deterministic, boundedEvents)
+                    );
+
             if (insight == null) {
                 failures.increment();
                 fallbacks.increment();
+
+                log.warn(
+                        "AI security analysis returned null. Falling back to deterministic analysis. tenantId={}",
+                        tenantId
+                );
+
                 return deterministic;
             }
 
             successes.increment();
+
             return new SecurityAnalysis(
                     deterministic.tenantId(),
                     deterministic.analysisWindowStart(),
@@ -83,20 +104,35 @@ public class SecurityAnalysisOrchestrator implements SecurityAnalysisProvider {
                     merge(deterministic.findings(), insight.findings()),
                     merge(deterministic.recommendations(), insight.recommendations())
             );
-        } catch (RuntimeException ignored) {
+
+        } catch (RuntimeException ex) {
             failures.increment();
             fallbacks.increment();
+
+            log.warn(
+                    "AI security analysis failed. Falling back to deterministic analysis. tenantId={}, errorType={}",
+                    tenantId,
+                    ex.getClass().getSimpleName()
+            );
+
             return deterministic;
+
         } finally {
             sample.stop(latency);
         }
     }
 
-    private List<String> merge(List<String> baseline, List<String> aiValues) {
-        LinkedHashSet<String> values = new LinkedHashSet<>(baseline);
+    private List<String> merge(
+            List<String> baseline,
+            List<String> aiValues
+    ) {
+        LinkedHashSet<String> values =
+                new LinkedHashSet<>(baseline);
+
         aiValues.stream()
                 .filter(value -> value != null && !value.isBlank())
                 .forEach(values::add);
+
         return List.copyOf(values);
     }
 }
