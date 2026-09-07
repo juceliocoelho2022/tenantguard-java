@@ -93,6 +93,31 @@ class SecurityAnalysisOrchestratorTest {
     }
 
     @Test
+    void shouldSkipAiWhenThereAreNoSecurityEvents() {
+        AiSecurityClient aiClient = mock(AiSecurityClient.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<AiSecurityClient> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(aiClient);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        SecurityAnalysisOrchestrator orchestrator =
+                new SecurityAnalysisOrchestrator(deterministicProvider, provider, registry, 100);
+
+        SecurityAnalysis result = orchestrator.analyze("TENANT_A", List.of());
+
+        assertEquals(0, result.totalEvents());
+        assertEquals(0, result.riskScore());
+        assertEquals(SecurityAnalysis.RiskLevel.LOW, result.riskLevel());
+
+        verifyNoInteractions(aiClient);
+
+        assertEquals(0.0, registry.counter("tenantguard.security.intelligence.ai.attempts").count());
+        assertEquals(0.0, registry.counter("tenantguard.security.intelligence.ai.successes").count());
+        assertEquals(0.0, registry.counter("tenantguard.security.intelligence.ai.failures").count());
+        assertEquals(0.0, registry.counter("tenantguard.security.intelligence.ai.fallbacks").count());
+    }
+
+    @Test
     void shouldLimitEvidenceSentToAiClient() {
         AiSecurityClient aiClient = mock(AiSecurityClient.class);
         @SuppressWarnings("unchecked")
