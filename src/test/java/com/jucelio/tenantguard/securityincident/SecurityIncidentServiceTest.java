@@ -29,6 +29,7 @@ class SecurityIncidentServiceTest {
     private SecurityIncidentPolicy policy;
     private SecurityIncidentRepository repository;
     private RlsTenantGuard rlsTenantGuard;
+    private SecurityIncidentAuditService auditService;
     private SecurityIncidentService service;
 
     @BeforeEach
@@ -36,8 +37,9 @@ class SecurityIncidentServiceTest {
         policy = mock(SecurityIncidentPolicy.class);
         repository = mock(SecurityIncidentRepository.class);
         rlsTenantGuard = mock(RlsTenantGuard.class);
+        auditService = mock(SecurityIncidentAuditService.class);
         Clock clock = Clock.fixed(Instant.parse("2026-09-07T12:00:00Z"), ZoneOffset.UTC);
-        service = new SecurityIncidentService(policy, repository, rlsTenantGuard, clock);
+        service = new SecurityIncidentService(policy, repository, rlsTenantGuard, auditService, clock);
         TenantContext.setTenant("TENANT_A");
     }
 
@@ -56,6 +58,7 @@ class SecurityIncidentServiceTest {
         assertTrue(result.isEmpty());
         verify(rlsTenantGuard).applyCurrentTenant();
         verify(repository, never()).save(any());
+        verify(auditService, never()).opened(any());
     }
 
     @Test
@@ -83,6 +86,7 @@ class SecurityIncidentServiceTest {
         assertTrue(result.isPresent());
         assertEquals(existing.getId(), result.get().getId());
         verify(repository, never()).save(any());
+        verify(auditService, never()).opened(any());
     }
 
     @Test
@@ -108,6 +112,7 @@ class SecurityIncidentServiceTest {
         assertEquals(SecurityIncidentSeverity.HIGH, result.get().getSeverity());
         assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.get().getCreatedAt());
         verify(repository).save(any(SecurityIncident.class));
+        verify(auditService).opened(result.get());
     }
 
     @Test
@@ -125,6 +130,7 @@ class SecurityIncidentServiceTest {
         );
         verify(rlsTenantGuard, never()).applyCurrentTenant();
         verify(repository, never()).save(any());
+        verify(auditService, never()).opened(any());
     }
 
     @Test
@@ -140,6 +146,7 @@ class SecurityIncidentServiceTest {
         assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getUpdatedAt());
         verify(rlsTenantGuard).applyCurrentTenant();
         verify(repository).save(incident);
+        verify(auditService).investigationStarted(incident);
     }
 
     @Test
@@ -154,6 +161,7 @@ class SecurityIncidentServiceTest {
         assertEquals(SecurityIncidentStatus.RESOLVED, result.getStatus());
         assertEquals("Mitigated after investigation", result.getResolutionNote());
         assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getResolvedAt());
+        verify(auditService).resolved(incident);
     }
 
     @Test
@@ -168,6 +176,7 @@ class SecurityIncidentServiceTest {
         assertEquals(SecurityIncidentStatus.DISMISSED, result.getStatus());
         assertEquals("Confirmed false positive", result.getResolutionNote());
         assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getResolvedAt());
+        verify(auditService).dismissed(incident);
     }
 
     @Test
@@ -180,6 +189,7 @@ class SecurityIncidentServiceTest {
 
         verify(rlsTenantGuard).applyCurrentTenant();
         verify(repository, never()).save(any());
+        verify(auditService, never()).investigationStarted(any());
     }
 
     private SecurityIncident incident() {
