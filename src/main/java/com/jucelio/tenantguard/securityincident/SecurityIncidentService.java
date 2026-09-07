@@ -22,26 +22,30 @@ public class SecurityIncidentService {
     private final SecurityIncidentPolicy policy;
     private final SecurityIncidentRepository repository;
     private final RlsTenantGuard rlsTenantGuard;
+    private final SecurityIncidentAuditService auditService;
     private final Clock clock;
 
     @Autowired
     public SecurityIncidentService(
             SecurityIncidentPolicy policy,
             SecurityIncidentRepository repository,
-            RlsTenantGuard rlsTenantGuard
+            RlsTenantGuard rlsTenantGuard,
+            SecurityIncidentAuditService auditService
     ) {
-        this(policy, repository, rlsTenantGuard, Clock.systemUTC());
+        this(policy, repository, rlsTenantGuard, auditService, Clock.systemUTC());
     }
 
     SecurityIncidentService(
             SecurityIncidentPolicy policy,
             SecurityIncidentRepository repository,
             RlsTenantGuard rlsTenantGuard,
+            SecurityIncidentAuditService auditService,
             Clock clock
     ) {
         this.policy = policy;
         this.repository = repository;
         this.rlsTenantGuard = rlsTenantGuard;
+        this.auditService = auditService;
         this.clock = clock;
     }
 
@@ -77,7 +81,9 @@ public class SecurityIncidentService {
                 OffsetDateTime.now(clock)
         );
 
-        return Optional.of(repository.save(incident));
+        SecurityIncident saved = repository.save(incident);
+        auditService.opened(saved);
+        return Optional.of(saved);
     }
 
     @Transactional(readOnly = true)
@@ -98,21 +104,27 @@ public class SecurityIncidentService {
     public SecurityIncident startInvestigation(UUID id) {
         SecurityIncident incident = requireCurrentTenantIncident(id);
         incident.startInvestigation(OffsetDateTime.now(clock));
-        return repository.save(incident);
+        SecurityIncident saved = repository.save(incident);
+        auditService.investigationStarted(saved);
+        return saved;
     }
 
     @Transactional
     public SecurityIncident resolve(UUID id, String note) {
         SecurityIncident incident = requireCurrentTenantIncident(id);
         incident.resolve(note, OffsetDateTime.now(clock));
-        return repository.save(incident);
+        SecurityIncident saved = repository.save(incident);
+        auditService.resolved(saved);
+        return saved;
     }
 
     @Transactional
     public SecurityIncident dismiss(UUID id, String note) {
         SecurityIncident incident = requireCurrentTenantIncident(id);
         incident.dismiss(note, OffsetDateTime.now(clock));
-        return repository.save(incident);
+        SecurityIncident saved = repository.save(incident);
+        auditService.dismissed(saved);
+        return saved;
     }
 
     private SecurityIncident requireCurrentTenantIncident(UUID id) {
