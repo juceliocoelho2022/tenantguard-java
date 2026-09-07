@@ -94,6 +94,34 @@ public class SecurityIncidentService {
         return repository.findByIdAndTenantId(id, tenantId);
     }
 
+    @Transactional
+    public SecurityIncident startInvestigation(UUID id) {
+        SecurityIncident incident = requireCurrentTenantIncident(id);
+        incident.startInvestigation(OffsetDateTime.now(clock));
+        return repository.save(incident);
+    }
+
+    @Transactional
+    public SecurityIncident resolve(UUID id, String note) {
+        SecurityIncident incident = requireCurrentTenantIncident(id);
+        incident.resolve(note, OffsetDateTime.now(clock));
+        return repository.save(incident);
+    }
+
+    @Transactional
+    public SecurityIncident dismiss(UUID id, String note) {
+        SecurityIncident incident = requireCurrentTenantIncident(id);
+        incident.dismiss(note, OffsetDateTime.now(clock));
+        return repository.save(incident);
+    }
+
+    private SecurityIncident requireCurrentTenantIncident(UUID id) {
+        String tenantId = TenantContext.getTenant();
+        rlsTenantGuard.applyCurrentTenant();
+        return repository.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(SecurityIncidentNotFoundException::new);
+    }
+
     private void ensureAnalysisTenant(SecurityAnalysis analysis, String tenantId) {
         if (analysis == null) {
             throw new IllegalArgumentException("analysis must not be null");
