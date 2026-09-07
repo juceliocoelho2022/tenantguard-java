@@ -9,16 +9,16 @@
   <img src="https://img.shields.io/badge/Spring%20AI-1.1.8-brightgreen" alt="Spring AI 1.1.8">
   <img src="https://img.shields.io/badge/PostgreSQL-RLS-blue" alt="PostgreSQL RLS">
   <img src="https://img.shields.io/badge/Security-RBAC-success" alt="RBAC">
-  <img src="https://img.shields.io/badge/Tests-59%20baseline-success" alt="59 tests passing on Sprint 14 baseline">
+  <img src="https://img.shields.io/badge/Tests-90%20passing-success" alt="90 tests passing locally on Sprint 15">
 </p>
 
 <p align="center">
   <img src="docs/images/tenantGuard-architecture.png" alt="TenantGuard Java - Secure Multi-Tenant Architecture" width="100%">
 </p>
 
-**TenantGuard Java** é uma Proof of Concept de backend SaaS multi-tenant construída com **Java 21 e Spring Boot**, evoluída com segurança em profundidade, isolamento por tenant, observabilidade, resiliência, infraestrutura como código e inteligência de segurança assistida por IA.
+**TenantGuard Java** é uma Proof of Concept de backend SaaS multi-tenant construída com **Java 21 e Spring Boot**, evoluída com segurança em profundidade, isolamento por tenant, observabilidade, resiliência, infraestrutura como código, inteligência de segurança assistida por IA e resposta operacional a incidentes.
 
-O tenant é derivado do JWT autenticado, propagado pelo `TenantContext`, aplicado nas consultas e reforçado pelo PostgreSQL através de **Row Level Security (RLS)**. A IA nunca substitui as decisões determinísticas de segurança: `riskScore`, `riskLevel`, categorias e políticas críticas continuam sob controle do backend.
+O tenant é derivado do JWT autenticado, propagado pelo `TenantContext`, aplicado nas consultas e reforçado pelo PostgreSQL através de **Row Level Security (RLS)**. A IA nunca substitui decisões determinísticas de segurança: `riskScore`, `riskLevel`, categorias, incident policy e lifecycle crítico continuam sob controle do backend.
 
 > Projeto voltado a estudo, ensino, portfólio e demonstração arquitetural. A presença de controles de produção não significa que a PoC seja um SaaS comercial pronto para uso sem revisão operacional, segurança, custos, compliance e SRE.
 
@@ -30,81 +30,62 @@ O tenant é derivado do JWT autenticado, propagado pelo `TenantContext`, aplicad
 |---|---|
 | Baseline v1 — multi-tenancy, RLS, JWT, observabilidade e AWS IaC | ✅ concluído |
 | Sprint 13 — Security Intelligence determinística + token replay | ✅ concluído |
-| Sprint 14 — Spring AI + fallback seguro + métricas | ✅ concluído e integrado à `main` |
-| Sprint 15 — Security Incident Response | 🚧 em desenvolvimento |
+| Sprint 14 — Spring AI + fallback seguro + métricas | ✅ integrado à `main` |
+| Sprint 15 — Security Incident Response | ✅ implementação e testes locais concluídos; CI/PR/runtime final pendentes |
 
-Validação mais recente integrada à `main`:
+Validação local mais recente do Sprint 15:
 
 ```text
-Tests run: 59
+Tests run: 90
 Failures: 0
 Errors: 0
 Skipped: 0
 BUILD SUCCESS
 ```
 
-O Sprint 15 adiciona novos testes e componentes; a contagem acima permanece como o último baseline totalmente validado até a próxima execução da suíte.
-
 ---
 
-## 🎯 Objetivo
-
-Demonstrar como construir um backend SaaS com **Shared Database + Shared Schema + `tenant_id`**, evitando que o cliente escolha o tenant e aplicando controles complementares em autenticação, autorização, persistência, auditoria, detecção de risco, resposta a incidentes e infraestrutura.
+## 🎯 Arquitetura
 
 ```text
 Cliente
   │
   ▼
-Spring Security + Access JWT
-  │   ├── tenant_id
-  │   ├── user
-  │   └── role
+Spring Security + JWT
+  │
   ▼
 TenantContext + RBAC
   │
-  ├──► Service / Repository
-  │        │
-  │        ▼
-  │    PostgreSQL + RLS
+  ├──► Services / Repositories ──► PostgreSQL + RLS
   │
   ├──► Security / Audit Events
-  │        │
-  │        ▼
+  │          │
+  │          ▼
   │    Security Intelligence
-  │        │
-  │        ├──► Deterministic Risk Engine
-  │        └──► Spring AI enrichment
-  │                  │
-  │                  ▼
-  │            Safe Fallback
-  │
-  ├──► Security Incident Policy
-  │        │
-  │        ▼
-  │    Incident Lifecycle
+  │      ├── Deterministic Risk Engine
+  │      └── Spring AI enrichment ──► Safe Fallback
+  │          │
+  │          ▼
+  │    Incident Policy Engine
+  │          │
+  │          ▼
+  │    Security Incident Service
+  │      ├── stable fingerprint / dedup
+  │      ├── audit trail
+  │      └── lifecycle metrics
   │
   ├──► Redis Rate Limiting
   │
-  └──► Observability
-          ├── Prometheus
-          ├── Grafana
-          ├── Loki / Promtail
-          └── OpenTelemetry / Tempo
+  └──► Prometheus / Grafana / Loki / Tempo
 ```
 
 ---
 
 ## 🧠 Security Intelligence + Spring AI
 
-O módulo de Security Intelligence analisa eventos de segurança do tenant e produz uma avaliação determinística com:
+O módulo de Security Intelligence produz avaliação determinística com `riskScore`, `riskLevel`, categorias, findings e recomendações.
 
-- `riskScore`;
-- `riskLevel`;
-- categorias de sinal;
-- findings;
-- recomendações.
-
-Categorias atuais incluem:
+Categorias atuais:
 
 ```text
 AUTH_FAILURE
@@ -114,25 +95,9 @@ TOKEN_REPLAY
 GENERIC_FAILURE
 ```
 
-O Spring AI pode enriquecer **findings** e **recommendations**, mas não pode alterar o score ou a classificação determinística.
+O Spring AI pode enriquecer findings e recommendations, mas não altera score, risk level ou decisões críticas. Em timeout, erro, resposta nula ou indisponibilidade do provedor, o backend mantém o resultado determinístico. Evidência vazia também evita chamada externa desnecessária.
 
-### Fail-safe / graceful degradation
-
-Se o provedor de IA estiver indisponível, retornar `null`, atingir timeout ou responder com erro, o TenantGuard continua operacional usando a análise determinística.
-
-Também existe short-circuit para evidência vazia:
-
-```text
-0 security events
-      ↓
-deterministic result
-      ↓
-AI provider is not called
-```
-
-Isso evita chamadas externas sem valor, consumo de quota, latência e ruído de fallback.
-
-Métricas Micrometer do fluxo de IA:
+Métricas do fluxo de IA:
 
 ```text
 tenantguard.security.intelligence.ai.attempts
@@ -144,9 +109,7 @@ tenantguard.security.intelligence.ai.latency
 
 ---
 
-## 🚨 Sprint 15 — Security Incident Response
-
-O próximo estágio do TenantGuard transforma detecção em resposta operacional.
+## 🚨 Security Incident Response — Sprint 15
 
 ```text
 Security Events
@@ -155,99 +118,83 @@ Security Intelligence
       ↓
 Deterministic Incident Policy
       ↓
+Stable Fingerprint + Active Dedup
+      ↓
 Security Incident
       ↓
 OPEN → INVESTIGATING → RESOLVED
   └────────────────────→ DISMISSED
+      ↓
+Audit + Metrics + PostgreSQL RLS
 ```
 
-O núcleo inicial do Sprint 15 já define:
+Implementado:
 
-- `SecurityIncident`;
-- `SecurityIncidentStatus`;
-- `SecurityIncidentSeverity`;
-- `SecurityIncidentDecision`;
-- `SecurityIncidentPolicy`;
-- lifecycle explícito;
-- policy determinística para abertura de incidentes;
-- fingerprint SHA-256 para futura deduplicação;
-- testes unitários de decisão e transição de estado.
+- `SecurityIncident` como entidade JPA;
+- lifecycle explícito e transições validadas;
+- severidade `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`;
+- policy determinística;
+- fingerprint SHA-256 estável;
+- serviço e repository tenant-aware;
+- optimistic locking com `@Version`;
+- Flyway V9/V10;
+- PostgreSQL RLS + `FORCE ROW LEVEL SECURITY`;
+- índice único parcial para incidentes ativos equivalentes;
+- API administrativa protegida por RBAC;
+- audit trail do lifecycle;
+- métricas Micrometer;
+- testes unitários, MockMvc e Testcontainers.
 
-A policy inicial abre incidente quando o score atinge o threshold definido ou quando um sinal crítico, como `TOKEN_REPLAY`, exige tratamento independente do score.
+### Fingerprint estável
 
-### Princípio arquitetural
+```text
+tenantId + categorias ordenadas
+```
 
-A decisão de abrir, classificar, resolver ou descartar incidentes **não é delegada ao LLM**. A IA pode enriquecer contexto narrativo, mas regras de segurança permanecem determinísticas e testáveis.
+O fingerprint não depende de score, risk level, timestamps, janela de análise, findings, recommendations ou texto de IA. O modelo atual ainda não possui `affectedUser`/`normalizedAction`; esses atributos poderão aumentar a granularidade futuramente.
 
-Próximas entregas do Sprint 15:
+### API administrativa
 
-- persistência JPA dos incidentes;
-- Flyway migration;
-- PostgreSQL RLS para incidentes;
-- deduplicação por fingerprint;
-- optimistic locking;
-- API administrativa tenant-aware;
-- auditoria de transições;
-- métricas de incident response;
-- testes cross-tenant e integração.
+```text
+GET   /api/admin/security-incidents
+GET   /api/admin/security-incidents/{id}
+PATCH /api/admin/security-incidents/{id}/investigate
+PATCH /api/admin/security-incidents/{id}/resolve
+PATCH /api/admin/security-incidents/{id}/dismiss
+```
+
+O tenant nunca é escolhido pelo cliente e não é exposto no DTO de resposta.
+
+### Métricas
+
+```text
+tenantguard.security.incidents.opened
+tenantguard.security.incidents.deduplicated
+tenantguard.security.incidents.investigation.started
+tenantguard.security.incidents.resolved
+tenantguard.security.incidents.dismissed
+tenantguard.security.incidents.closure.duration
+```
+
+As tags são de baixa cardinalidade. Tenant, incident ID, fingerprint, username e notas de resolução não são labels.
 
 ---
 
 ## 🚀 Stack
 
-### Backend e segurança
+**Backend:** Java 21, Spring Boot 3.5, Spring Security, Spring AI 1.1.8, Spring Data JPA, PostgreSQL 17, Flyway e Redis.
 
-- Java 21
-- Spring Boot 3.5
-- Spring Security
-- Spring AI 1.1.8
-- Access Token + Refresh Token JWT
-- rotação e revogação de refresh tokens
-- RBAC — `USER` / `ADMIN`
-- Tenant Resolver / Tenant Context
-- Spring Data JPA / Hibernate
-- PostgreSQL 17 + Row Level Security
-- Flyway
-- Redis para rate limiting distribuído
-- auditoria e security events
-- correlação por `requestId`, `correlationId`, `traceId` e `spanId`
+**Segurança:** JWT access/refresh, RBAC, TenantContext, PostgreSQL RLS, refresh-token rotation/revocation, replay detection, rate limiting distribuído e audit trail.
 
-### Qualidade e observabilidade
+**Qualidade:** JUnit 5, Mockito, MockMvc, Testcontainers e GitHub Actions.
 
-- JUnit 5
-- MockMvc
-- Testcontainers
-- GitHub Actions CI
-- Spring Boot Actuator
-- Micrometer / Prometheus
-- Grafana
-- logs estruturados JSON
-- Loki / Promtail
-- OpenTelemetry / Tempo
-- health, liveness e readiness probes
+**Observabilidade:** Actuator, Micrometer, Prometheus, Grafana, logs JSON, Loki/Promtail, OpenTelemetry e Tempo.
 
-### Infraestrutura e entrega
-
-- Docker / Docker Compose
-- container non-root
-- Kubernetes
-- Horizontal Pod Autoscaler
-- Terraform
-- AWS EKS
-- Amazon RDS for PostgreSQL
-- Amazon ElastiCache for Redis
-- Amazon ECR
-- AWS Secrets Manager
-- Secrets Store CSI Driver
-- Application Load Balancer / HTTPS
-- GitHub Actions + AWS OIDC
-- Terraform remote state em S3
+**Infraestrutura:** Docker/Compose, Kubernetes, HPA, Terraform, AWS EKS, RDS PostgreSQL, ElastiCache Redis, ECR, Secrets Manager, CSI Driver, ALB/HTTPS e GitHub Actions com AWS OIDC.
 
 ---
 
 ## 🏢 Multi-Tenancy e RLS
-
-O `tenant_id` não é aceito do cliente por query string, path parameter ou body. Ele é obtido do JWT validado.
 
 ```text
 JWT tenant_id
@@ -260,94 +207,32 @@ app.current_tenant
     ↓
 PostgreSQL RLS
     ↓
-Somente dados do tenant autenticado
+Dados do tenant autenticado
 ```
 
-Acesso cross-tenant validado em runtime:
-
-```text
-TENANT_A → recurso pertencente ao TENANT_B → 404 Not Found
-```
-
-`ROLE_ADMIN` não concede acesso global aos dados de outros tenants.
+`ROLE_ADMIN` concede funções administrativas, não acesso global aos dados de outros tenants. Recursos cross-tenant são tratados como não encontrados.
 
 ---
 
-## 🔐 Autenticação, autorização e sessões
+## 🧪 Testes
 
-```text
-Login
-  ↓
-Access Token + Refresh Token
-  │
-  ├── Access Token → APIs protegidas
-  │
-  └── Refresh Token → /api/auth/refresh
-                         ↓
-                    rotação/revogação
+```bash
+mvn test
 ```
 
-Matriz validada:
-
-| Cenário | Resultado |
-|---|---:|
-| Endpoint protegido sem autenticação | `401` |
-| USER em endpoint ADMIN | `403` |
-| ADMIN em endpoint ADMIN | `200` |
-| Recurso de outro tenant | `404` |
-| Rate limit excedido | `429` |
-| Replay de refresh token | `401` |
-
----
-
-## 🚦 Rate Limiting distribuído
-
-O Redis atua como backend de rate limiting, evitando que o controle dependa da memória de uma única instância. Após o limite configurado, novas requisições podem retornar `429 Too Many Requests`.
-
----
-
-## 🔎 Auditoria e rastreabilidade
-
-Logs e eventos podem carregar:
+Baseline local validado em 07/09/2026:
 
 ```text
-tenant_id
-user
-role
-requestId
-correlationId
-traceId
-spanId
-status
-durationMs
+Tests run: 90
+Failures: 0
+Errors: 0
+Skipped: 0
+BUILD SUCCESS
 ```
 
-Esse contexto permite relacionar autenticação, autorização, eventos de segurança, análise de risco e futuras transições de incident response.
+A suíte cobre domínio, policy, fingerprint, deduplicação, RBAC, API administrativa, auditoria, métricas, RLS e isolamento cross-tenant com PostgreSQL via Testcontainers.
 
----
-
-## 📊 Observabilidade
-
-| Componente | Finalidade |
-|---|---|
-| Actuator / Micrometer | health e métricas |
-| Prometheus | coleta de métricas |
-| Grafana | dashboards |
-| JSON Logs | logs estruturados |
-| Promtail / Loki | centralização de logs |
-| OpenTelemetry / Tempo | tracing distribuído |
-
-Endpoints locais principais:
-
-```text
-API        http://localhost:8081
-Swagger    http://localhost:8081/swagger-ui/index.html
-Health     http://localhost:8081/actuator/health
-Readiness  http://localhost:8081/actuator/health/readiness
-Liveness   http://localhost:8081/actuator/health/liveness
-Prometheus http://localhost:9090
-Grafana    http://localhost:3000
-```
+O Sprint 15 somente será promovido como integrado à `main` após CI do head final, validação runtime e revisão/merge do PR.
 
 ---
 
@@ -371,84 +256,64 @@ mvn spring-boot:run
 
 ---
 
-## ☸️ Kubernetes e AWS
-
-O repositório contém manifests Kubernetes e infraestrutura Terraform para arquitetura com:
-
-- EKS;
-- RDS PostgreSQL;
-- ElastiCache Redis;
-- ECR;
-- ALB;
-- Secrets Manager;
-- Secrets Store CSI Driver;
-- GitHub Actions com AWS OIDC.
-
-O JWT signing secret é tratado fora do Terraform state e disponibilizado ao workload por mecanismo de secrets externo.
-
----
-
-## 🧪 Testes e CI
-
-```bash
-mvn test
-```
-
-Baseline do Sprint 14 validado localmente e em CI:
+## 📊 Observabilidade local
 
 ```text
-Tests run: 59
-Failures: 0
-Errors: 0
-Skipped: 0
-BUILD SUCCESS
+API        http://localhost:8081
+Swagger    http://localhost:8081/swagger-ui/index.html
+Health     http://localhost:8081/actuator/health
+Readiness  http://localhost:8081/actuator/health/readiness
+Liveness   http://localhost:8081/actuator/health/liveness
+Prometheus http://localhost:9090
+Grafana    http://localhost:3000
 ```
-
-O Sprint 15 acrescenta novos testes; a nova contagem será promovida no README somente após execução completa da suíte.
 
 ---
 
-## 🔒 Decisões de segurança
+## ☸️ Kubernetes e AWS
+
+O repositório contém manifests Kubernetes e Terraform para EKS, RDS PostgreSQL, ElastiCache Redis, ECR, ALB, Secrets Manager, Secrets Store CSI Driver e GitHub Actions com AWS OIDC.
+
+---
+
+## 🔒 Invariantes de segurança
 
 - tenant derivado do JWT validado;
-- RBAC e isolamento multi-tenant como controles independentes;
-- recursos cross-tenant retornam `404`;
-- consultas tenant-aware + PostgreSQL RLS formam defesa em profundidade;
-- refresh tokens possuem rotação/revogação e proteção contra replay;
+- RBAC e isolamento multi-tenant são controles independentes;
+- consultas tenant-aware + PostgreSQL RLS fornecem defesa em profundidade;
+- refresh tokens possuem rotação/revogação e replay detection;
 - Redis fornece rate limiting distribuído;
 - IA não controla score, risk level ou decisões críticas;
 - fallback determinístico mantém disponibilidade sem provedor de IA;
-- evidência enviada ao LLM é limitada e passa por redaction;
 - incident policy é determinística e testável;
-- fingerprint prepara deduplicação de incidentes;
+- fingerprint não depende de saída da IA;
+- incident lifecycle é auditado;
+- métricas evitam tags de alta cardinalidade;
 - secrets de runtime são externalizados;
 - containers executam como non-root;
-- AWS OIDC reduz dependência de credenciais estáticas;
-- logs e eventos carregam identificadores de correlação.
+- AWS OIDC reduz dependência de credenciais estáticas.
 
 ---
 
 ## 📁 Estrutura conceitual
 
 ```text
-src/main/java/
-  └── com/jucelio/tenantguard/
-      ├── auth/
-      ├── security/
-      ├── securityintelligence/
-      ├── securityincident/        # Sprint 15
-      ├── audit/
-      ├── order/
-      ├── tenant/
-      └── observability/
+src/main/java/com/jucelio/tenantguard/
+  ├── auth/
+  ├── security/
+  ├── securityintelligence/
+  ├── securityincident/
+  ├── audit/
+  ├── order/
+  ├── tenant/
+  └── observability/
 
-src/test/                    testes automatizados
-observability/               Prometheus, Grafana, Loki, Tempo
-k8s/                         manifests Kubernetes
-infra/terraform/             infraestrutura AWS como código
-.github/workflows/           CI/CD
-Dockerfile                   imagem non-root
-docker-compose.yml           stack local
+src/main/resources/db/migration/   Flyway
+src/test/                          testes automatizados
+observability/                     Prometheus, Grafana, Loki, Tempo
+k8s/                               Kubernetes
+infra/terraform/                   AWS como código
+.github/workflows/                 CI/CD
 ```
 
 ---
@@ -461,22 +326,24 @@ docker-compose.yml           stack local
 - [x] replay detection
 - [x] Redis distributed rate limiting
 - [x] security event audit
-- [x] observabilidade completa
+- [x] observabilidade
 - [x] Docker non-root
 - [x] Kubernetes + Terraform AWS
 - [x] GitHub Actions + AWS OIDC
 - [x] Security Intelligence determinística
 - [x] Spring AI enrichment com fallback seguro
 - [x] métricas de AI security intelligence
-- [x] short-circuit para evidência vazia
-- [x] núcleo de domínio do Security Incident Response
-- [ ] persistência de security incidents
-- [ ] RLS para security incidents
-- [ ] deduplicação por fingerprint
-- [ ] optimistic locking
-- [ ] API administrativa de incidentes
-- [ ] métricas e auditoria de incident lifecycle
-- [ ] testes cross-tenant de incident response
+- [x] Security Incident domain/lifecycle
+- [x] persistência JPA + optimistic locking
+- [x] RLS para security incidents
+- [x] deduplicação ativa + fingerprint estável
+- [x] API administrativa tenant-aware
+- [x] auditoria de incident lifecycle
+- [x] métricas de incident response
+- [x] testes cross-tenant/Testcontainers
+- [ ] CI do head final do Sprint 15
+- [ ] validação runtime final do Sprint 15
+- [ ] PR Sprint 15 revisado e integrado à `main`
 - [ ] ambiente AWS/EKS demonstrativo end-to-end
 - [ ] testes de carga e SLO/SLI formais
 
@@ -493,4 +360,4 @@ Java Backend Developer
 
 ## 📄 Aviso
 
-Credenciais, usuários e configurações demonstrativas destinam-se exclusivamente a desenvolvimento local e estudo. Não reutilize senhas, tokens, API keys ou secrets de demonstração em ambientes reais.
+Este repositório é uma PoC educacional e de portfólio. Credenciais e secrets reais não devem ser versionados.
