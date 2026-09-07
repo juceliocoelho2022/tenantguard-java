@@ -1,20 +1,59 @@
 package com.jucelio.tenantguard.securityincident;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
+@Entity
+@Table(name = "security_incidents")
 public class SecurityIncident {
 
-    private final UUID id;
-    private final String tenantId;
-    private final SecurityIncidentSeverity severity;
-    private final int riskScore;
-    private final String fingerprint;
-    private final OffsetDateTime createdAt;
+    @Id
+    private UUID id;
+
+    @Column(name = "tenant_id", nullable = false, length = 120)
+    private String tenantId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SecurityIncidentSeverity severity;
+
+    @Column(name = "risk_score", nullable = false)
+    private int riskScore;
+
+    @Column(nullable = false, length = 64)
+    private String fingerprint;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private SecurityIncidentStatus status;
+
+    @Column(name = "created_at", nullable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @Column(name = "resolved_at")
+    private OffsetDateTime resolvedAt;
+
+    @Column(name = "resolution_note", length = 1000)
     private String resolutionNote;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
+
+    protected SecurityIncident() {
+    }
 
     private SecurityIncident(
             UUID id,
@@ -25,6 +64,7 @@ public class SecurityIncident {
             SecurityIncidentStatus status,
             OffsetDateTime createdAt,
             OffsetDateTime updatedAt,
+            OffsetDateTime resolvedAt,
             String resolutionNote
     ) {
         this.id = Objects.requireNonNull(id);
@@ -35,6 +75,7 @@ public class SecurityIncident {
         this.status = Objects.requireNonNull(status);
         this.createdAt = Objects.requireNonNull(createdAt);
         this.updatedAt = Objects.requireNonNull(updatedAt);
+        this.resolvedAt = resolvedAt;
         this.resolutionNote = resolutionNote;
     }
 
@@ -54,6 +95,7 @@ public class SecurityIncident {
                 SecurityIncidentStatus.OPEN,
                 now,
                 now,
+                null,
                 null
         );
     }
@@ -69,9 +111,11 @@ public class SecurityIncident {
             throw new IllegalStateException("Only open or investigating incidents can be resolved");
         }
 
+        OffsetDateTime timestamp = Objects.requireNonNull(now);
         resolutionNote = requireText(note, "resolutionNote");
         status = SecurityIncidentStatus.RESOLVED;
-        updatedAt = Objects.requireNonNull(now);
+        updatedAt = timestamp;
+        resolvedAt = timestamp;
     }
 
     public void dismiss(String note, OffsetDateTime now) {
@@ -79,9 +123,11 @@ public class SecurityIncident {
             throw new IllegalStateException("Only open or investigating incidents can be dismissed");
         }
 
+        OffsetDateTime timestamp = Objects.requireNonNull(now);
         resolutionNote = requireText(note, "resolutionNote");
         status = SecurityIncidentStatus.DISMISSED;
-        updatedAt = Objects.requireNonNull(now);
+        updatedAt = timestamp;
+        resolvedAt = timestamp;
     }
 
     private void requireStatus(SecurityIncidentStatus expected) {
@@ -136,7 +182,15 @@ public class SecurityIncident {
         return updatedAt;
     }
 
+    public OffsetDateTime getResolvedAt() {
+        return resolvedAt;
+    }
+
     public String getResolutionNote() {
         return resolutionNote;
+    }
+
+    public long getVersion() {
+        return version;
     }
 }
