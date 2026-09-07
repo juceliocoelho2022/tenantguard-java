@@ -13,6 +13,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -124,6 +125,71 @@ class SecurityIncidentServiceTest {
         );
         verify(rlsTenantGuard, never()).applyCurrentTenant();
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void shouldStartInvestigationForCurrentTenantIncident() {
+        SecurityIncident incident = incident();
+        when(repository.findByIdAndTenantId(incident.getId(), "TENANT_A"))
+                .thenReturn(Optional.of(incident));
+        when(repository.save(incident)).thenReturn(incident);
+
+        SecurityIncident result = service.startInvestigation(incident.getId());
+
+        assertEquals(SecurityIncidentStatus.INVESTIGATING, result.getStatus());
+        assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getUpdatedAt());
+        verify(rlsTenantGuard).applyCurrentTenant();
+        verify(repository).save(incident);
+    }
+
+    @Test
+    void shouldResolveCurrentTenantIncident() {
+        SecurityIncident incident = incident();
+        when(repository.findByIdAndTenantId(incident.getId(), "TENANT_A"))
+                .thenReturn(Optional.of(incident));
+        when(repository.save(incident)).thenReturn(incident);
+
+        SecurityIncident result = service.resolve(incident.getId(), "Mitigated after investigation");
+
+        assertEquals(SecurityIncidentStatus.RESOLVED, result.getStatus());
+        assertEquals("Mitigated after investigation", result.getResolutionNote());
+        assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getResolvedAt());
+    }
+
+    @Test
+    void shouldDismissCurrentTenantIncident() {
+        SecurityIncident incident = incident();
+        when(repository.findByIdAndTenantId(incident.getId(), "TENANT_A"))
+                .thenReturn(Optional.of(incident));
+        when(repository.save(incident)).thenReturn(incident);
+
+        SecurityIncident result = service.dismiss(incident.getId(), "Confirmed false positive");
+
+        assertEquals(SecurityIncidentStatus.DISMISSED, result.getStatus());
+        assertEquals("Confirmed false positive", result.getResolutionNote());
+        assertEquals(OffsetDateTime.parse("2026-09-07T12:00:00Z"), result.getResolvedAt());
+    }
+
+    @Test
+    void shouldReturnNotFoundForIncidentOutsideCurrentTenant() {
+        UUID id = UUID.randomUUID();
+        when(repository.findByIdAndTenantId(id, "TENANT_A"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(SecurityIncidentNotFoundException.class, () -> service.startInvestigation(id));
+
+        verify(rlsTenantGuard).applyCurrentTenant();
+        verify(repository, never()).save(any());
+    }
+
+    private SecurityIncident incident() {
+        return SecurityIncident.open(
+                "TENANT_A",
+                SecurityIncidentSeverity.HIGH,
+                60,
+                "abc123",
+                OffsetDateTime.parse("2026-09-07T11:00:00Z")
+        );
     }
 
     private SecurityAnalysis analysis(String tenantId, int riskScore) {
