@@ -73,3 +73,8 @@ app:
         max-attempts: ${AUTH_LOGIN_MAX_ATTEMPTS:5}
       refresh:
         max-attempts: ${AUTH_REFRESH_MAX_ATTEMPTS:10}
+  security-intelligence:
+    ai:
+      enabled: ${SECURITY_INTELLIGENCE_AI_ENABLED:false}
+      timeout: ${SECURITY_INTELLIGENCE_AI_TIMEOUT:5s}
+      max-events: ${SECURITY_INTELLIGENCE_AI_MAX_EVENTS:100}
